@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1112">
+    <meta name="description" content="VisionLogix warehouse vision and delivery operations dashboard.">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <title>VisionLogix | Warehouse Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="VisionLogix home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 28 28" fill="none"><path d="M6 6.5h5.1l3.1 10.2 3.2-10.2h4.6l-5.4 15h-5.1L6 6.5Z" fill="currentColor"/><circle cx="21.5" cy="20.5" r="2.5" fill="#B9F56B"/></svg>
+          </span>
+          <span>VISION<span class="brand-light">LOGIX</span></span>
+        </a>
+        <nav class="topbar-nav" aria-label="Main navigation">
+          <a class="nav-link nav-link-active" href="#overview">Overview</a>
+          <a class="nav-link" href="#camera-workspace">Vision</a>
+          <a class="nav-link" href="#warehouse">Warehouse</a>
+        </nav>
+        <div class="topbar-meta">
+          <div class="stage-label"><span class="stage-dot"></span> STAGE 02 <span class="stage-divider">/</span> LOCAL OPERATIONS</div>
+        <div id="connection-state" class="connection-state" data-state="off">
+          <span class="connection-dot"></span><span id="connection-label">Camera offline</span>
+        </div>
+        </div>
+      </header>
+
+      <section class="intro" id="overview">
+        <div>
+          <p class="eyebrow"><span class="eyebrow-line"></span> OPERATIONS OVERVIEW <span class="eyebrow-divider">/</span> 01</p>
+          <h1>Warehouse intelligence,<br><span>in motion.</span></h1>
+          <p class="intro-copy">A live view of your vision system and autonomous delivery simulation.</p>
+        </div>
+        <div class="hero-note">
+          <span class="hero-note-icon" aria-hidden="true">⌗</span>
+          <span><strong>Vision system</strong><small>ArUco 4×4 · IDs 0–96</small></span>
+          <span class="hero-note-state"><i></i> LOCAL</span>
+        </div>
+      </section>
+
+      <section class="workspace" id="camera-workspace" aria-label="Live marker detection">
+        <div class="video-panel panel">
+          <div class="panel-heading">
+            <div class="heading-group"><span class="panel-icon camera-panel-icon" aria-hidden="true">◉</span><span><span class="panel-title">Vision feed</span><small class="panel-subtitle">Real-time marker analysis</small></span></div>
+            <span id="frame-size" class="subtle-label">AWAITING CAMERA</span>
+          </div>
+          <div class="video-stage">
+            <img id="video-feed" alt="Live camera feed with detected markers outlined">
+            <div id="video-placeholder" class="video-placeholder">
+              <div class="camera-icon" aria-hidden="true">⌗</div>
+              <strong>Camera feed is paused</strong>
+              <span>Connect a camera to begin marker detection.</span>
+            </div>
+            <div class="video-overlay"><span><i class="overlay-dot"></i> LIVE ANALYSIS</span><span id="fps-value">0.0 FPS</span></div>
+          </div>
+          <div class="video-footer">
+            <span><span class="legend-outline"></span> DETECTED MARKER</span>
+            <span>OPTIMAL MARKER SIZE <strong>40 PX+</strong></span>
+          </div>
+        </div>
+
+        <aside class="side-panel">
+          <section class="panel control-panel">
+            <div class="panel-heading">
+              <div class="heading-group"><span class="panel-icon control-panel-icon" aria-hidden="true">↗</span><span><span class="panel-title">Camera control</span><small class="panel-subtitle">Private · this device only</small></span></div>
+              <span class="panel-index">01</span>
+            </div>
+            <p class="panel-copy">Connect a camera to scan for robot markers. Video stays on this device.</p>
+            <div class="button-row">
+              <button id="start-button" class="button button-primary" type="button"><span>Connect camera</span><span aria-hidden="true">↗</span></button>
+              <button id="stop-button" class="button button-secondary" type="button" disabled>Stop</button>
+            </div>
+            <p id="camera-message" class="camera-message" role="status">Camera is not connected.</p>
+          </section>
+
+          <section class="panel detections-panel">
+            <div class="panel-heading">
+              <div class="heading-group"><span class="panel-icon detection-panel-icon" aria-hidden="true">⌗</span><span><span id="detection-heading" class="panel-title">Detected markers</span><small class="panel-subtitle">Objects in camera view</small></span></div>
+              <span id="marker-count" class="count-badge">0</span>
+            </div>
+            <p class="panel-copy">Marker ID and position update as objects enter the camera view.</p>
+            <div id="detection-list" class="detection-list">
+              <div class="empty-state"><span class="empty-target">◎</span><span>No markers detected yet</span></div>
+            </div>
+          </section>
+
+          <details class="panel test-panel">
+            <summary><span class="heading-group"><span class="panel-icon test-panel-icon" aria-hidden="true">＋</span><span><span class="panel-title">Test marker</span><small class="panel-subtitle">Generate a printable marker</small></span></span><span class="panel-index">DEMO</span></summary>
+            <p class="panel-copy">Generate a high-contrast marker to test your camera setup.</p>
+            <div class="marker-tools">
+              <label for="marker-id">MARKER ID</label>
+              <div class="marker-controls">
+                <input id="marker-id" type="number" min="0" max="96" value="7" aria-label="Test marker ID, from 0 to 96">
+                <button id="marker-button" class="button button-secondary" type="button">Generate</button>
+              </div>
+            </div>
+            <div class="marker-preview">
+              <img id="marker-image" src="/api/marker/7.png" alt="Printable ArUco test marker, ID 7">
+            </div>
+            <p id="marker-message" class="marker-message" aria-live="polite">Marker 7 · 4×4 dictionary</p>
+          </details>
+        </aside>
+      </section>
+
+      <section class="warehouse-dashboard panel" id="warehouse" aria-label="3D warehouse delivery dashboard">
+        <div class="panel-heading">
+          <div class="heading-group"><span class="panel-icon warehouse-panel-icon" aria-hidden="true">▦</span><span><span class="panel-title">Warehouse overview</span><small class="panel-subtitle">Live fleet and route visualization</small></span><span class="warehouse-live-dot"></span></div>
+          <span id="warehouse-message" class="subtle-label">WAITING FOR ROBOT MARKERS</span>
+        </div>
+        <div class="warehouse-summary" aria-label="Delivery totals">
+          <div class="metric-total"><span class="metric-symbol" aria-hidden="true">◈</span><span class="metric-copy"><span class="warehouse-metric-label">TOTAL ROBOTS</span><strong id="warehouse-total">0</strong></span><span class="metric-caption">In this session</span></div>
+          <div class="metric-moving"><span class="metric-symbol" aria-hidden="true">↗</span><span class="metric-copy"><span class="warehouse-metric-label">IN MOTION</span><strong id="warehouse-moving">0</strong></span><span class="metric-caption">Active routes</span></div>
+          <div class="metric-queued"><span class="metric-symbol" aria-hidden="true">≡</span><span class="metric-copy"><span class="warehouse-metric-label">IN QUEUE</span><strong id="warehouse-queued">0</strong></span><span class="metric-caption">Awaiting aisle</span></div>
+          <div class="metric-delivered"><span class="metric-symbol" aria-hidden="true">✓</span><span class="metric-copy"><span class="warehouse-metric-label">DELIVERED</span><strong id="warehouse-delivered">0</strong></span><span class="metric-caption">Completed routes</span></div>
+        </div>
+        <div class="warehouse-layout">
+          <div id="warehouse-scene" class="warehouse-scene" role="img" aria-label="Interactive 3D warehouse with shelf obstacles and delivery zones">
+            <div class="warehouse-scene-placeholder">Loading 3D warehouse…</div>
+          </div>
+          <aside class="warehouse-sidebar">
+            <div class="warehouse-legend">
+              <h2 class="panel-title">Destination zones</h2>
+              <p class="sidebar-intro">Robots are routed automatically by marker ID.</p>
+              <div><span class="zone-swatch zone-1"></span><span>Zone A <small>IDs 1–32</small></span></div>
+              <div><span class="zone-swatch zone-2"></span><span>Zone B <small>IDs 33–64</small></span></div>
+              <div><span class="zone-swatch zone-3"></span><span>Zone C <small>IDs 65–96</small></span></div>
+              <p>Each ArUco ID represents one virtual robot. IDs are recognized by camera; ID 0 is visual-only.</p>
+            </div>
+            <div class="robot-list-panel">
+              <div class="list-heading"><h2 class="panel-title">Fleet activity</h2><span class="list-live-label"><i></i> LIVE</span></div>
+              <div id="robot-list" class="robot-list">
+                <div class="empty-state">No deliveries yet</div>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div class="warehouse-footer">
+          <span>PATHFINDING <strong>A* / MANHATTAN</strong></span>
+          <span>COLLISION PREVENTION <strong>SHARED AISLE RESERVATION</strong></span>
+        </div>
+      </section>
+
+      <footer class="page-footer">
+        <span>VISIONLOGIX <span class="footer-muted">· VISION + WAREHOUSE INTEGRATION</span></span>
+        <span>ARUCO MARKER IDS 0–96 <span class="footer-muted">· DELIVERY IDS 1–96</span></span>
+      </footer>
+    </main>
+    <script type="importmap">
+      {"imports":{"three":"{{ url_for('static', filename='vendor/build/three.module.js') }}"}}
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+    <script type="module" src="{{ url_for('static', filename='warehouse3d.js') }}"></script>
+  </body>
+</html>
