@@ -10,6 +10,7 @@ let camera;
 let controls;
 let gridSize = { width: 24, height: 16 };
 let routeGroup;
+let warehouseFloorInitialized = false;
 
 function worldPosition([x, z], y = 0) {
   return new THREE.Vector3(
@@ -223,6 +224,18 @@ function updateWarehouseScene(state) {
       robotScene.routeLine.geometry.dispose();
       robotScene.routeLine.material.dispose();
     }
+    robotScene.group.traverse((object) => {
+      object.geometry?.dispose();
+      const materials = Array.isArray(object.material)
+        ? object.material
+        : object.material
+          ? [object.material]
+          : [];
+      for (const material of materials) {
+        material.map?.dispose();
+        material.dispose();
+      }
+    });
     robotMeshes.delete(robotId);
   }
 }
@@ -275,15 +288,9 @@ function startScene() {
     routeGroup = new THREE.Group();
     scene.add(routeGroup);
     const warehouse = window.initialWarehouseState;
-    if (warehouse) addWarehouseFloor(warehouse);
-    else {
-      const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(24, 16),
-        new THREE.MeshStandardMaterial({ color: 0x19242b }),
-      );
-      floor.rotation.x = -Math.PI / 2;
-      floor.position.y = -0.1;
-      scene.add(floor);
+    if (warehouse) {
+      addWarehouseFloor(warehouse);
+      warehouseFloorInitialized = true;
     }
 
     const resize = new ResizeObserver(() => {
@@ -312,7 +319,10 @@ async function loadWarehouse() {
     const state = await response.json();
     window.initialWarehouseState = state;
     if (scene) {
-      addWarehouseFloor(state);
+      if (!warehouseFloorInitialized) {
+        addWarehouseFloor(state);
+        warehouseFloorInitialized = true;
+      }
       updateWarehouseScene(state);
     }
   } catch (error) {

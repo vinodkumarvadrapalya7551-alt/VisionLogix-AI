@@ -195,6 +195,15 @@ class CameraService:
                     )
                     self._startup_event.set()
                     self._frame_changed.notify_all()
+        except cv2.error as exc:
+            with self._frame_changed:
+                self._status.update(
+                    running=False,
+                    starting=False,
+                    message=f"OpenCV camera error: {exc}",
+                )
+                self._startup_event.set()
+                self._frame_changed.notify_all()
         finally:
             if capture is not None:
                 capture.release()

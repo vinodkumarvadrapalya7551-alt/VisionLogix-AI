@@ -194,6 +194,25 @@ class CameraBackendTests(unittest.TestCase):
 
         self.assertEqual(release_thread_ids, [open_thread_ids[0]])
 
+    @patch("visionlogix.camera.open_camera")
+    def test_camera_reports_opencv_read_errors_and_releases_capture(self, mock_open):
+        capture = MagicMock()
+        capture.read.side_effect = cv2.error("simulated read failure")
+        mock_open.return_value = capture, "test backend"
+        service = CameraService()
+
+        started, message = service.start()
+
+        try:
+            self.assertFalse(started)
+            self.assertIn("OpenCV camera error", message)
+            self.assertIn("simulated read failure", message)
+            self.assertFalse(service.status()["starting"])
+        finally:
+            service.stop()
+
+        capture.release.assert_called_once_with()
+
     def test_video_feed_returns_clear_error_if_camera_is_not_running(self):
         response = app.test_client().get("/video_feed")
 

@@ -39,6 +39,16 @@ class MarkerDetector:
         if marker_ids is None:
             return [], annotated
 
+        supported_indices = [
+            index
+            for index, marker_id_array in enumerate(marker_ids)
+            if 0 <= int(marker_id_array[0]) <= MAX_MARKER_ID
+        ]
+        if not supported_indices:
+            return [], annotated
+
+        marker_corners = [marker_corners[index] for index in supported_indices]
+        marker_ids = marker_ids[supported_indices]
         cv2.aruco.drawDetectedMarkers(annotated, marker_corners, marker_ids)
         detections: list[MarkerDetection] = []
         for corners_array, marker_id_array in zip(marker_corners, marker_ids):

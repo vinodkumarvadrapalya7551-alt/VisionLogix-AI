@@ -18,6 +18,7 @@ function setCameraState(running, message, starting = false) {
     : starting
       ? "Connecting camera"
       : "Camera offline";
+  cameraState.setAttribute("aria-label", connectionLabel.textContent);
   cameraMessage.textContent = message;
   startButton.disabled = running || startPending;
   stopButton.disabled = !running && !starting;
@@ -83,14 +84,17 @@ function robotActivitySteps(robot) {
     { label: `Marker ${robot.marker_id} captured`, state: "complete" },
     { label: `${robot.zone_name} assigned`, state: "complete" },
     {
-      label: "Aisle-safe route planned",
+      label:
+        robot.status === "blocked"
+          ? "Route planning failed"
+          : "Aisle-safe route planned",
       state: robot.status === "blocked" ? "blocked" : "complete",
     },
   ];
 
   if (robot.status === "blocked") {
     steps.push(
-      { label: "Route unavailable", state: "blocked" },
+      { label: "No clear route to destination", state: "blocked" },
       { label: "Delivery cannot continue", state: "blocked" },
     );
     return steps;

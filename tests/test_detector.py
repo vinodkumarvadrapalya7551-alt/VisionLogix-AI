@@ -3,7 +3,7 @@ import unittest
 import cv2
 import numpy as np
 
-from visionlogix.detector import MarkerDetector, create_marker_png
+from visionlogix.detector import DICTIONARY_ID, MarkerDetector, create_marker_png
 
 
 class MarkerDetectorTests(unittest.TestCase):
@@ -27,6 +27,29 @@ class MarkerDetectorTests(unittest.TestCase):
         marker = cv2.imdecode(encoded, cv2.IMREAD_GRAYSCALE)
         frame = np.full((400, 400), 255, dtype=np.uint8)
         frame[80:320, 80:320] = marker
+
+        detections, _ = MarkerDetector().detect(frame)
+
+        self.assertEqual([detection.marker_id for detection in detections], [96])
+
+    def test_ignores_dictionary_ids_above_the_supported_range(self):
+        dictionary = cv2.aruco.getPredefinedDictionary(DICTIONARY_ID)
+        marker = cv2.aruco.generateImageMarker(dictionary, 97, 240, borderBits=1)
+        frame = np.full((400, 400), 255, dtype=np.uint8)
+        frame[80:320, 80:320] = marker
+
+        detections, annotated = MarkerDetector().detect(frame)
+
+        self.assertEqual(detections, [])
+        np.testing.assert_array_equal(annotated, frame)
+
+    def test_keeps_supported_markers_when_unsupported_ids_are_also_visible(self):
+        dictionary = cv2.aruco.getPredefinedDictionary(DICTIONARY_ID)
+        unsupported = cv2.aruco.generateImageMarker(dictionary, 97, 240, borderBits=1)
+        supported = cv2.aruco.generateImageMarker(dictionary, 96, 240, borderBits=1)
+        frame = np.full((400, 700), 255, dtype=np.uint8)
+        frame[80:320, 40:280] = unsupported
+        frame[80:320, 420:660] = supported
 
         detections, _ = MarkerDetector().detect(frame)
 
