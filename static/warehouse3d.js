@@ -4,6 +4,7 @@ import { OrbitControls } from "./vendor/examples/jsm/controls/OrbitControls.js";
 const container = document.querySelector("#warehouse-scene");
 const zoneColors = { "1": 0x55b98a, "2": 0x5d9bd1, "3": 0xd65353 };
 const robotMeshes = new Map();
+const dynamicObstacleMeshes = new Map();
 let renderer;
 let scene;
 let camera;
@@ -11,6 +12,7 @@ let controls;
 let gridSize = { width: 24, height: 16 };
 let routeGroup;
 let warehouseFloorInitialized = false;
+let movementStepSeconds = 0.12;
 
 function worldPosition([x, z], y = 0) {
   return new THREE.Vector3(
@@ -76,7 +78,7 @@ function addWarehouseFloor(state) {
     ),
   );
 
-  for (const [x, z] of state.grid.obstacles) {
+  for (const [x, z] of state.static_obstacles ?? state.grid.obstacles) {
     const shelf = new THREE.Mesh(
       new THREE.BoxGeometry(0.84, 1.45, 0.84),
       new THREE.MeshStandardMaterial({
@@ -128,6 +130,38 @@ function addWarehouseFloor(state) {
   scene.add(entry);
 }
 
+function updateDynamicObstacles(state) {
+  const current = new Set();
+  for (const [x, z] of state.dynamic_obstacles ?? []) {
+    const key = `${x},${z}`;
+    current.add(key);
+    if (dynamicObstacleMeshes.has(key)) continue;
+
+    const obstacle = new THREE.Mesh(
+      new THREE.BoxGeometry(0.84, 0.95, 0.84),
+      new THREE.MeshStandardMaterial({
+        color: 0xc85b4b,
+        emissive: 0x5c1c17,
+        emissiveIntensity: 0.5,
+        roughness: 0.75,
+      }),
+    );
+    obstacle.position.copy(worldPosition([x, z], 0.43));
+    obstacle.castShadow = true;
+    obstacle.userData.dynamicObstacle = true;
+    scene.add(obstacle);
+    dynamicObstacleMeshes.set(key, obstacle);
+  }
+
+  for (const [key, obstacle] of dynamicObstacleMeshes) {
+    if (current.has(key)) continue;
+    scene.remove(obstacle);
+    obstacle.geometry.dispose();
+    obstacle.material.dispose();
+    dynamicObstacleMeshes.delete(key);
+  }
+}
+
 function createRobot(robot) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(
@@ -171,7 +205,11 @@ function createRobot(robot) {
     cargo,
     routeKey: "",
     routeLine: null,
-    target: new THREE.Vector3(),
+    route: [],
+    displayProgress: 0,
+    backendProgress: 0,
+    lastAnimationAt: performance.now(),
+    status: robot.status,
   };
 }
 
@@ -201,19 +239,37 @@ function updateRoute(robot, robotScene) {
 
 function updateWarehouseScene(state) {
   if (!scene) return;
+  movementStepSeconds = state.step_seconds ?? movementStepSeconds;
+  updateDynamicObstacles(state);
   for (const robot of state.robots) {
     let robotScene = robotMeshes.get(robot.robot_id);
     if (!robotScene) {
       robotScene = createRobot(robot);
       robotMeshes.set(robot.robot_id, robotScene);
     }
+    const routeChanged = robotScene.routeKey !== JSON.stringify(robot.route);
     updateRoute(robot, robotScene);
-    if (robot.position) {
-      robotScene.target.copy(worldPosition(robot.position, 0.28));
+    robotScene.route = robot.route;
+    const lastIndex = Math.max(0, robot.route.length - 1);
+    const routeProgress = Math.min(
+      lastIndex,
+      Math.max(0, robot.route_index + (robot.step_progress ?? 0)),
+    );
+    robotScene.backendProgress = routeProgress;
+    if (routeChanged) {
+      robotScene.displayProgress = routeProgress;
+      robotScene.lastAnimationAt = performance.now();
+      if (robot.position) {
+        robotScene.group.position.copy(worldPosition(robot.position, 0.28));
+      }
     }
+    robotScene.status = robot.status;
     robotScene.group.userData.status = robot.status;
     robotScene.cargo.visible = robot.status !== "delivered";
-    robotScene.group.visible = robot.position !== null;
+    robotScene.group.visible =
+      robot.position !== null &&
+      robot.status !== "queued" &&
+      !(robot.status === "delivered" && robotScene.displayProgress >= lastIndex);
   }
 
   for (const [robotId, robotScene] of robotMeshes) {
@@ -240,10 +296,41 @@ function updateWarehouseScene(state) {
   }
 }
 
+function robotWorldPosition(robotScene) {
+  if (robotScene.route.length === 0) return null;
+  const lastIndex = robotScene.route.length - 1;
+  const progress = Math.min(lastIndex, Math.max(0, robotScene.displayProgress));
+  const index = Math.floor(progress);
+  const fraction = progress - index;
+  if (index === lastIndex) {
+    return worldPosition(robotScene.route[lastIndex], 0.28);
+  }
+
+  const [fromX, fromZ] = robotScene.route[index];
+  const [toX, toZ] = robotScene.route[index + 1];
+  return worldPosition(
+    [fromX + (toX - fromX) * fraction, fromZ + (toZ - fromZ) * fraction],
+    0.28,
+  );
+}
+
 function animate() {
   requestAnimationFrame(animate);
+  const now = performance.now();
   for (const robotScene of robotMeshes.values()) {
-    robotScene.group.position.lerp(robotScene.target, 0.13);
+    const elapsedSeconds = Math.max(0, (now - robotScene.lastAnimationAt) / 1000);
+    robotScene.lastAnimationAt = now;
+    if (robotScene.status === "moving" || robotScene.status === "delivered") {
+      const remaining = robotScene.backendProgress - robotScene.displayProgress;
+      const maxAdvance = elapsedSeconds / movementStepSeconds;
+      robotScene.displayProgress += Math.min(remaining, maxAdvance);
+    }
+    const position = robotWorldPosition(robotScene);
+    if (position) robotScene.group.position.copy(position);
+    const lastIndex = Math.max(0, robotScene.route.length - 1);
+    if (robotScene.status === "delivered" && robotScene.displayProgress >= lastIndex) {
+      robotScene.group.visible = false;
+    }
     if (robotScene.group.userData.status === "moving") {
       robotScene.group.rotation.y += 0.012;
     }

@@ -3,6 +3,9 @@
 VisionLogix detects ArUco 4×4 markers from a local webcam and uses IDs 1–96 to
 trigger virtual robot deliveries in an interactive 3D warehouse. A* pathfinding
 routes each robot around shelf obstacles to its assigned destination zone.
+It is a marker-based item identification and delivery-status tool for a small
+warehouse operator or supervisor, not a general-purpose object-recognition
+system.
 
 ## Requirements
 
@@ -32,6 +35,10 @@ and warehouse deliveries.
 Three.js and its orbit controls are bundled under `static/vendor`, so the
 dashboard does not need internet access at runtime. `package.json` and
 `package-lock.json` pin the library version used for those bundled files.
+
+No independently measured physical-warehouse baseline or operator usability
+study is available yet. Do not use the simulation KPIs to claim labor savings,
+real package throughput, or sorting accuracy.
 
 If the default camera is not the one you want, set its OpenCV index before
 starting the app:
@@ -69,10 +76,73 @@ robot and is removed from the robot when it reaches its destination. Drag the
 3D view to orbit and use the mouse wheel to zoom.
 
 This is a virtual warehouse simulation; it does not issue commands to physical
-robots or track real packages. The camera detects marker identity and image
-coordinates only. It does not infer a robot's calibrated position in the
-warehouse. Reconnecting the same marker during a single app run does not create
-a duplicate delivery.
+robots or track real packages. Camera coordinates are image pixels and are not
+warehouse coordinates. Reconnecting the same marker during a single app run
+does not create a duplicate delivery. One virtual robot moves at a time; queued
+robots wait off the aisle, and blocked robots reserve their current grid cell.
+
+The browser-camera view draws marker outlines over the preview using returned
+corner coordinates. The local camera preview is annotated by OpenCV. In both
+modes, IDs and center coordinates refer to the camera image, not calibrated
+warehouse localization.
+
+## Performance metrics
+
+The dashboard reports simulation-only session measurements:
+
+- **Packages/minute:** completed deliveries divided by elapsed time since the
+  first valid marker assignment in this app session.
+- **Mis-sorts:** assigned destinations that disagree with the configured
+  marker-ID-to-zone mapping. The displayed rate is mis-sorts divided by
+  evaluated assignments. This is an internal consistency check, not
+  independent validation of marker accuracy.
+- **Reroutes:** accepted replacement routes only. A failed replan is not
+  counted as a reroute and leaves the delivery blocked.
+- **Average delivery time:** mean start-to-completion time for completed
+  deliveries only. Incomplete and blocked deliveries are excluded.
+
+An empty/zero-duration session has no defined throughput or mis-sort rate and
+is displayed as `—`. These values describe the virtual simulation and must not
+be interpreted as real-world warehouse throughput or productivity.
+
+## API
+
+- `GET /api/status` — local camera status and current/saved detections.
+- `GET /api/detections` — local camera detections.
+- `GET /api/warehouse` — delivery state, routes, dynamic/static obstacles,
+  movement progress, and session metrics.
+- `GET /api/metrics` — current performance metrics as JSON.
+- `POST /api/camera/start` and `POST /api/camera/stop` — control the local
+  webcam.
+- `POST /api/camera/frame` — Vercel browser-camera JPEG detection endpoint;
+  returns detected marker data and the resulting warehouse snapshot.
+- `POST /api/warehouse/reset` — clear the current in-memory delivery session.
+- `POST /api/warehouse/obstacles` — replace temporary blocked grid cells and
+  attempt to replan an affected moving robot. Example:
+
+  ```json
+  {
+    "blocked_cells": [[4, 3]],
+    "reason": "Temporary aisle obstruction"
+  }
+  ```
+
+  Use an empty `blocked_cells` array to clear temporary obstacles. The response
+  contains `rerouted` and the current warehouse state. Coordinates must be
+  integer grid cells inside the 24×16 warehouse.
+
+## Validation and limitations
+
+Run the automated tests with the command below. They use generated ArUco
+images, deterministic timestamps, and controlled obstacle scenarios; they do
+not establish physical-camera detection performance across lighting,
+distance, or angle conditions. The frontend smooths each robot along one
+adjacent A* route segment at a time, using backend route index and progress.
+Only one robot is dispatched at a time; this is the simulation's aisle
+reservation policy, not a multi-robot traffic-control system.
+
+See [MILESTONE.md](./MILESTONE.md) for evidence-based feature status, test
+fixtures, known limitations, and portfolio materials that are still needed.
 
 For reliable detection, keep the whole marker visible, use bright even lighting,
 avoid glare, and make the marker at least 40 pixels wide in the camera image.
@@ -86,11 +156,13 @@ root. The included `vercel.json` routes the Flask app through Vercel's Python
 function. No separate frontend build command is required.
 
 The hosted version uses your browser's camera permission and securely uploads
-downscaled JPEG frames to the Flask function for ArUco detection. It does not
-store uploaded frames. Use HTTPS and allow camera access when prompted. A
-camera-detected marker ID from 1–32 routes to Zone A, 33–64 to Zone B, and
-65–96 to Zone C. Cloud function storage is temporary; the Vercel demo is not
-intended to persist delivery state across cold starts.
+downscaled JPEG frames to the Flask function for ArUco detection. Uploaded
+frames are processed in memory and not written as image files. Use HTTPS and
+allow camera access when prompted. A camera-detected marker ID from 1–32
+routes to Zone A, 33–64 to Zone B, and 65–96 to Zone C. Cloud function storage
+is temporary; the Vercel demo is not intended to persist delivery state across
+cold starts. The online demo reflects the last published deployment; local
+changes must be separately deployed before they appear there.
 
 ## Tests
 

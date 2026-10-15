@@ -5,6 +5,7 @@ const startButton = document.querySelector("#start-button");
 const stopButton = document.querySelector("#stop-button");
 const videoFeed = document.querySelector("#video-feed");
 const browserVideo = document.querySelector("#browser-camera");
+const browserOverlay = document.querySelector("#browser-overlay");
 const videoPlaceholder = document.querySelector("#video-placeholder");
 const placeholderTitle = document.querySelector("#camera-placeholder-title");
 const placeholderMessage = document.querySelector("#camera-placeholder-message");
@@ -35,6 +36,7 @@ function setCameraState(running, message, starting = false) {
     videoFeed.removeAttribute("src");
     videoFeed.hidden = true;
     browserVideo.hidden = true;
+    browserOverlay.hidden = true;
     videoPlaceholder.hidden = false;
     videoPlaceholder.classList.add("is-starting");
     placeholderTitle.textContent = "Opening camera…";
@@ -53,6 +55,7 @@ function setCameraState(running, message, starting = false) {
     if (browserCameraEnabled) {
       videoFeed.hidden = true;
       browserVideo.hidden = false;
+      browserOverlay.hidden = false;
     } else {
       videoFeed.src = `/video_feed?t=${Date.now()}`;
       videoFeed.hidden = false;
@@ -61,6 +64,7 @@ function setCameraState(running, message, starting = false) {
     videoFeed.removeAttribute("src");
     videoFeed.hidden = true;
     browserVideo.hidden = true;
+    browserOverlay.hidden = true;
     videoPlaceholder.hidden = false;
     videoPlaceholder.classList.remove("is-starting");
     placeholderTitle.textContent = "Camera feed is paused";
@@ -104,6 +108,31 @@ function renderDetections(detections) {
     size.textContent = `${detection.side_pixels} px`;
     row.append(id, position, size);
     detectionList.append(row);
+  }
+}
+
+function drawBrowserDetections(detections, width, height) {
+  browserOverlay.width = width;
+  browserOverlay.height = height;
+  const context = browserOverlay.getContext("2d");
+  context.clearRect(0, 0, width, height);
+  context.lineWidth = Math.max(2, width / 400);
+  context.font = `bold ${Math.max(16, width / 32)}px Segoe UI, sans-serif`;
+  context.textBaseline = "bottom";
+  context.strokeStyle = "#c5f477";
+  context.fillStyle = "#c5f477";
+
+  for (const detection of detections) {
+    if (!Array.isArray(detection.corners) || detection.corners.length !== 4) continue;
+    context.beginPath();
+    detection.corners.forEach(([x, y], index) => {
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.closePath();
+    context.stroke();
+    const [labelX, labelY] = detection.corners[0];
+    context.fillText(`ID ${detection.marker_id}`, labelX, Math.max(20, labelY - 6));
   }
 }
 
@@ -217,15 +246,7 @@ async function refreshWarehouse() {
     const response = await fetch("/api/warehouse", { cache: "no-store" });
     if (!response.ok) throw new Error("Could not read warehouse status.");
     const state = await response.json();
-    document.querySelector("#warehouse-message").textContent =
-      state.message.toUpperCase();
-    document.querySelector("#warehouse-total").textContent = String(state.summary.total);
-    document.querySelector("#warehouse-moving").textContent = String(state.summary.moving);
-    document.querySelector("#warehouse-queued").textContent = String(state.summary.queued);
-    document.querySelector("#warehouse-delivered").textContent =
-      String(state.summary.delivered);
-    renderRobotList(state.robots);
-    window.updateWarehouseScene?.(state);
+    renderWarehouseState(state);
   } catch (error) {
     document.querySelector("#warehouse-message").textContent =
       "WAREHOUSE SERVICE UNAVAILABLE";
@@ -242,7 +263,70 @@ function renderWarehouseState(state) {
   document.querySelector("#warehouse-delivered").textContent =
     String(state.summary.delivered);
   renderRobotList(state.robots);
+  if (state.metrics) renderPerformanceMetrics(state.metrics);
   window.updateWarehouseScene?.(state);
+}
+
+function renderPerformanceMetrics(metrics) {
+  const formatMetric = (value, fractionDigits, suffix) => {
+    const number = Number(value);
+    return value === null || value === undefined || !Number.isFinite(number)
+      ? "—"
+      : `${number.toFixed(fractionDigits)}${suffix}`;
+  };
+  const formatCount = (value) => {
+    const number = Number(value);
+    return value === null || value === undefined || !Number.isFinite(number)
+      ? "—"
+      : String(number);
+  };
+  document.querySelector("#metric-throughput").textContent =
+    formatMetric(metrics.packages_per_minute, 2, " / min");
+  document.querySelector("#metric-completed").textContent =
+    formatCount(metrics.completed_deliveries);
+  document.querySelector("#metric-attempts").textContent =
+    formatCount(metrics.delivery_attempts ?? metrics.evaluated_assignments);
+  document.querySelector("#metric-mis-sorts").textContent =
+    formatCount(metrics.mis_sorts);
+  document.querySelector("#metric-mis-sort-rate").textContent =
+    formatMetric(metrics.mis_sort_rate_percent, 1, "%");
+  document.querySelector("#metric-evaluated").textContent =
+    formatCount(metrics.evaluated_assignments);
+  document.querySelector("#metric-reroutes").textContent =
+    formatCount(metrics.reroutes);
+  document.querySelector("#metric-failed").textContent =
+    formatCount(metrics.failed_deliveries ?? metrics.blocked_routes);
+  document.querySelector("#metric-average-time").textContent =
+    formatMetric(metrics.average_delivery_seconds, 1, " s");
+  const observationSeconds = Number(metrics.observation_seconds);
+  document.querySelector("#metrics-window").textContent = Number.isFinite(observationSeconds)
+    ? metrics.session_started_at
+      ? `OBSERVING · ${(observationSeconds / 60).toFixed(1)} MIN`
+      : "WAITING FOR FIRST MARKER"
+    : "METRICS UNAVAILABLE";
+}
+
+async function refreshPerformanceMetrics() {
+  try {
+    const response = await fetch("/api/metrics", { cache: "no-store" });
+    if (!response.ok) throw new Error("Performance metrics are unavailable.");
+    renderPerformanceMetrics(await response.json());
+  } catch {
+    document.querySelector("#metrics-window").textContent = "METRICS UNAVAILABLE";
+    for (const id of [
+      "metric-throughput",
+      "metric-completed",
+      "metric-attempts",
+      "metric-mis-sorts",
+      "metric-mis-sort-rate",
+      "metric-evaluated",
+      "metric-reroutes",
+      "metric-failed",
+      "metric-average-time",
+    ]) {
+      document.querySelector(`#${id}`).textContent = "—";
+    }
+  }
 }
 
 async function refreshStatus() {
@@ -373,6 +457,11 @@ async function processBrowserCameraFrames(stream) {
         if (!response.ok) throw new Error(result.error || "Camera frame processing failed.");
 
         renderDetections(result.detections);
+        drawBrowserDetections(
+          result.detections,
+          result.frame_width,
+          result.frame_height,
+        );
         renderWarehouseState(result.warehouse);
         document.querySelector("#frame-size").textContent =
           `${result.frame_width} × ${result.frame_height}`;
@@ -424,3 +513,5 @@ if (browserCameraEnabled) {
   refreshStatus();
   window.setInterval(refreshStatus, 500);
 }
+refreshPerformanceMetrics();
+window.setInterval(refreshPerformanceMetrics, 3000);

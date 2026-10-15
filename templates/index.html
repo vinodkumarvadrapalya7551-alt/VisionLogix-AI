@@ -22,6 +22,7 @@
           <a class="nav-link nav-link-active" href="#overview">Overview</a>
           <a class="nav-link" href="#camera-workspace">Vision</a>
           <a class="nav-link" href="#warehouse">Warehouse</a>
+          <a class="nav-link" href="#performance">Performance</a>
         </nav>
         <div class="topbar-meta">
           <div class="stage-label"><span class="stage-dot"></span> STAGE 02 <span class="stage-divider">/</span> {{ "CLOUD CAMERA" if browser_camera else "LOCAL OPERATIONS" }}</div>
@@ -58,6 +59,7 @@
               <span id="camera-placeholder-message">Connect a camera to begin marker detection.</span>
             </div>
             <video id="browser-camera" autoplay playsinline muted hidden></video>
+            <canvas id="browser-overlay" aria-hidden="true" hidden></canvas>
             <div class="video-overlay"><span><i class="overlay-dot"></i> LIVE ANALYSIS</span><span id="fps-value">0.0 FPS</span></div>
           </div>
           <div class="video-footer">
@@ -131,7 +133,7 @@
               <div><span class="zone-swatch zone-1"></span><span>Zone A <small>IDs 1–32</small></span></div>
               <div><span class="zone-swatch zone-2"></span><span>Zone B <small>IDs 33–64</small></span></div>
               <div><span class="zone-swatch zone-3"></span><span>Zone C <small>IDs 65–96</small></span></div>
-              <p>{{ "Each ArUco ID represents one virtual robot. IDs are recognized by camera; ID 0 is visual-only." if camera_available else "Each ArUco ID represents one virtual robot. Simulate a scan to trigger its route; ID 0 is visual-only." }}</p>
+              <p>Each valid ArUco ID represents one virtual delivery. Camera image coordinates are not warehouse coordinates; ID 0 is visual-only.</p>
             </div>
             <div class="robot-list-panel">
               <div class="list-heading"><h2 class="panel-title">Fleet activity</h2><span class="list-live-label"><i></i> LIVE</span></div>
@@ -143,8 +145,42 @@
         </div>
         <div class="warehouse-footer">
           <span>PATHFINDING <strong>A* / MANHATTAN</strong></span>
-          <span>COLLISION PREVENTION <strong>SHARED AISLE RESERVATION</strong></span>
+          <span>COLLISION PREVENTION <strong>ONE ACTIVE ROBOT · QUEUED DISPATCH</strong></span>
         </div>
+      </section>
+
+      <section class="performance-panel panel" id="performance" aria-labelledby="performance-title">
+        <div class="panel-heading">
+          <div class="heading-group">
+            <span class="panel-icon warehouse-panel-icon" aria-hidden="true">▤</span>
+            <span><span id="performance-title" class="panel-title">Performance</span><small class="panel-subtitle">Session metrics · simulated deliveries</small></span>
+          </div>
+          <span id="metrics-window" class="subtle-label">WAITING FOR FIRST MARKER</span>
+        </div>
+        <div class="performance-grid">
+          <article class="performance-metric">
+            <span class="warehouse-metric-label">PACKAGES / MINUTE</span>
+            <strong id="metric-throughput">—</strong>
+            <small><span id="metric-completed">0</span> completed of <span id="metric-attempts">0</span> attempts · since first marker assignment</small>
+          </article>
+          <article class="performance-metric">
+            <span class="warehouse-metric-label">MIS-SORTS</span>
+            <strong id="metric-mis-sorts">0</strong>
+            <small><span id="metric-mis-sort-rate">—</span> · <span id="metric-evaluated">0</span> assigned</small>
+          </article>
+          <article class="performance-metric">
+            <span class="warehouse-metric-label">SUCCESSFUL REROUTES</span>
+            <strong id="metric-reroutes">0</strong>
+            <small>Only accepted replacement routes</small>
+          </article>
+          <article class="performance-metric">
+            <span class="warehouse-metric-label">AVERAGE DELIVERY TIME</span>
+            <strong id="metric-average-time">—</strong>
+            <small>Completed deliveries only · seconds</small>
+          </article>
+        </div>
+        <p class="performance-session-status">Blocked/failed deliveries: <strong id="metric-failed">0</strong></p>
+        <p class="performance-note">Simulation-only results. Mis-sort checks compare each assignment with the configured marker-zone map; they are not independent accuracy validation. No real-world throughput is measured.</p>
       </section>
 
       <footer class="page-footer">

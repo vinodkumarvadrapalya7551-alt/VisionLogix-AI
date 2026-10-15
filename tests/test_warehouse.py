@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime, timezone
 
 from pathfinding import DEFAULT_OBSTACLES, find_path
 from warehouse import WarehouseService, zone_for_marker
@@ -73,6 +74,7 @@ class WarehouseServiceTests(unittest.TestCase):
 
         state = warehouse.snapshot(now=2.0)
         self.assertEqual(state["summary"]["total"], 1)
+        self.assertEqual(state["metrics"]["delivery_attempts"], 1)
 
     def test_multiple_robots_are_queued_to_avoid_route_collisions(self):
         warehouse = WarehouseService()
@@ -105,6 +107,131 @@ class WarehouseServiceTests(unittest.TestCase):
         self.assertEqual(robot["marker_id"], 96)
         self.assertEqual(robot["zone_id"], "3")
         self.assertEqual(robot["zone_name"], "Zone C")
+
+    def test_metrics_handle_empty_session_without_inventing_zero_rate(self):
+        metrics = WarehouseService().metrics_snapshot()
+
+        self.assertIsNone(metrics["session_started_at"])
+        self.assertEqual(metrics["completed_deliveries"], 0)
+        self.assertIsNone(metrics["packages_per_minute"])
+        self.assertEqual(metrics["mis_sorts"], 0)
+        self.assertIsNone(metrics["mis_sort_rate_percent"])
+        self.assertEqual(metrics["reroutes"], 0)
+        self.assertIsNone(metrics["average_delivery_seconds"])
+
+    def test_metrics_leave_throughput_undefined_at_zero_elapsed_time(self):
+        warehouse = WarehouseService()
+        warehouse.observe_detections([{"marker_id": 7}], now=10.0)
+        started_at = datetime.fromisoformat(warehouse._session_started_at)
+
+        metrics = warehouse.metrics_snapshot(started_at)
+
+        self.assertEqual(metrics["observation_seconds"], 0)
+        self.assertIsNone(metrics["packages_per_minute"])
+        self.assertEqual(metrics["delivery_attempts"], 1)
+
+    def test_metrics_calculate_throughput_duration_and_mis_sorts(self):
+        warehouse = WarehouseService()
+        warehouse.observe_detections([{"marker_id": 7}], now=10.0)
+        robot = warehouse._robots[7]
+        warehouse._active_marker_id = None
+        warehouse._next_step_at = None
+        robot.status = "delivered"
+        robot.started_at = "2026-01-01T00:00:05+00:00"
+        robot.delivered_at = "2026-01-01T00:00:08.500000+00:00"
+        robot.zone = zone_for_marker(40)
+        warehouse._session_started_at = "2026-01-01T00:00:00+00:00"
+
+        metrics = warehouse.metrics_snapshot(
+            datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
+        )
+
+        self.assertEqual(metrics["completed_deliveries"], 1)
+        self.assertEqual(metrics["delivery_attempts"], 1)
+        self.assertEqual(metrics["failed_deliveries"], 0)
+        self.assertEqual(metrics["packages_per_minute"], 1.0)
+        self.assertEqual(metrics["evaluated_assignments"], 1)
+        self.assertEqual(metrics["mis_sorts"], 1)
+        self.assertEqual(metrics["mis_sort_rate_percent"], 100.0)
+        self.assertEqual(metrics["average_delivery_seconds"], 3.5)
+        self.assertTrue(metrics["simulation_only"])
+
+    def test_successful_reroute_records_both_routes_and_reason(self):
+        warehouse = WarehouseService(step_seconds=0.1)
+        warehouse.observe_detections([{"marker_id": 7}], now=10.0)
+        robot_before = warehouse.snapshot(now=10.0)["robots"][0]
+        blocked_cell = tuple(robot_before["route"][2])
+
+        rerouted = warehouse.set_dynamic_obstacles(
+            {blocked_cell},
+            "Temporary aisle obstruction",
+            now=10.01,
+        )
+        state = warehouse.snapshot(now=10.01)
+        robot_after = state["robots"][0]
+
+        self.assertTrue(rerouted)
+        self.assertEqual(state["metrics"]["reroutes"], 1)
+        self.assertEqual(state["reroutes"][0]["reason"], "Temporary aisle obstruction")
+        self.assertEqual(
+            state["reroutes"][0]["original_route"],
+            robot_before["route"][robot_before["route_index"] :],
+        )
+        self.assertEqual(state["reroutes"][0]["replacement_route"], robot_after["route"])
+        self.assertNotEqual(robot_before["route"], robot_after["route"])
+        self.assertFalse(any(blocked_cell == tuple(point) for point in robot_after["route"]))
+        self.assertEqual(robot_after["position"], robot_before["position"])
+
+    def test_failed_reroute_blocks_robot_without_incrementing_metric(self):
+        warehouse = WarehouseService(step_seconds=0.1)
+        warehouse.observe_detections([{"marker_id": 1}], now=10.0)
+
+        rerouted = warehouse.set_dynamic_obstacles(
+            {(0, 1), (2, 1), (1, 0), (1, 2)},
+            "All exits blocked",
+            now=10.01,
+        )
+        state = warehouse.snapshot(now=10.01)
+
+        self.assertFalse(rerouted)
+        self.assertEqual(state["robots"][0]["status"], "blocked")
+        self.assertEqual(state["metrics"]["reroutes"], 0)
+        self.assertEqual(state["metrics"]["failed_deliveries"], 1)
+        self.assertEqual(state["metrics"]["blocked_routes"], 1)
+
+    def test_backend_exposes_continuous_progress_only_on_one_route_segment(self):
+        warehouse = WarehouseService(step_seconds=1.0)
+        warehouse.observe_detections([{"marker_id": 7}], now=10.0)
+
+        state = warehouse.snapshot(now=10.5)
+        robot = state["robots"][0]
+        start = robot["route"][robot["route_index"]]
+        end = robot["route"][robot["route_index"] + 1]
+
+        self.assertAlmostEqual(robot["step_progress"], 0.5)
+        self.assertEqual(
+            abs(end[0] - start[0]) + abs(end[1] - start[1]),
+            1,
+        )
+        self.assertEqual(state["step_seconds"], 1.0)
+
+    def test_queued_robot_dispatches_after_active_delivery_completes(self):
+        warehouse = WarehouseService(step_seconds=0.1)
+        warehouse.observe_detections(
+            [{"marker_id": 1}, {"marker_id": 40}],
+            now=10.0,
+        )
+
+        first_state = warehouse.snapshot(now=10.0)
+        self.assertEqual(first_state["summary"]["moving"], 1)
+        self.assertEqual(first_state["summary"]["queued"], 1)
+
+        next_state = warehouse.snapshot(now=100.0)
+
+        self.assertEqual(next_state["summary"]["delivered"], 1)
+        self.assertEqual(next_state["summary"]["moving"], 1)
+        self.assertEqual(next_state["summary"]["queued"], 0)
+        self.assertEqual(next_state["robots"][1]["status"], "moving")
 
     def test_restores_saved_delivery_progress(self):
         original = WarehouseService(step_seconds=0.1)

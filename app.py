@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 
+from pathfinding import DEFAULT_OBSTACLES
 from visionlogix.camera import CameraService
 from visionlogix.detector import create_marker_png
 from visionlogix.state_store import AppStateStore
@@ -92,12 +93,52 @@ def warehouse_status():
     return jsonify(state)
 
 
+@app.get("/api/metrics")
+def performance_metrics():
+    return jsonify(warehouse.metrics_snapshot())
+
+
 @app.post("/api/warehouse/reset")
 def reset_warehouse():
     warehouse.reset()
     state = warehouse.snapshot()
     state_store.save("warehouse", state)
     return jsonify(state)
+
+
+@app.post("/api/warehouse/obstacles")
+def update_warehouse_obstacles():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object."}), 400
+
+    raw_cells = payload.get("blocked_cells")
+    if not isinstance(raw_cells, list):
+        return jsonify({"error": "blocked_cells must be a list of [x, y] cells."}), 400
+
+    blocked_cells: set[tuple[int, int]] = set()
+    for cell in raw_cells:
+        if (
+            not isinstance(cell, list)
+            or len(cell) != 2
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in cell)
+        ):
+            return jsonify({"error": "Each blocked cell must contain integer x and y coordinates."}), 400
+        x, y = cell
+        if not 0 <= x < 24 or not 0 <= y < 16:
+            return jsonify({"error": "Blocked cells must be inside the warehouse grid."}), 400
+        if (x, y) in DEFAULT_OBSTACLES:
+            return jsonify({"error": "Permanent shelf cells cannot be redefined as temporary obstacles."}), 400
+        blocked_cells.add((x, y))
+
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or len(reason.strip()) > 200:
+        return jsonify({"error": "reason must contain 1–200 characters."}), 400
+
+    rerouted = warehouse.set_dynamic_obstacles(blocked_cells, reason.strip())
+    state = warehouse.snapshot()
+    state_store.save("warehouse", state)
+    return jsonify({"rerouted": rerouted, "warehouse": state})
 
 
 @app.post("/api/camera/start")

@@ -145,6 +145,43 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["summary"]["total"], 0)
 
+    def test_metrics_endpoint_reports_empty_session_values(self):
+        with patch("app.warehouse", WarehouseService()):
+            response = self.client.get("/api/metrics")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["completed_deliveries"], 0)
+        self.assertIsNone(response.json["packages_per_minute"])
+        self.assertIsNone(response.json["average_delivery_seconds"])
+        self.assertTrue(response.json["simulation_only"])
+
+    def test_obstacle_api_records_only_successfully_accepted_reroutes(self):
+        test_warehouse = WarehouseService(step_seconds=3600)
+        test_warehouse.observe_detections([{"marker_id": 7}])
+        original_route = test_warehouse.snapshot()["robots"][0]["route"]
+        blocked_cell = original_route[2]
+
+        with (
+            patch("app.warehouse", test_warehouse),
+            patch("app.state_store.save"),
+        ):
+            response = self.client.post(
+                "/api/warehouse/obstacles",
+                json={
+                    "blocked_cells": [blocked_cell],
+                    "reason": "Controlled reroute test",
+                },
+            )
+            invalid = self.client.post(
+                "/api/warehouse/obstacles",
+                json={"blocked_cells": [[24, 0]], "reason": "Out of bounds"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json["rerouted"])
+        self.assertEqual(response.json["warehouse"]["metrics"]["reroutes"], 1)
+        self.assertEqual(invalid.status_code, 400)
+
     def test_camera_start_is_unavailable_in_cloud_demo(self):
         with patch.dict(app.config, {"CAMERA_ENABLED": False}):
             response = self.client.post("/api/camera/start")
