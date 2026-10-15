@@ -93,13 +93,12 @@
 
           <details class="panel test-panel">
             <summary><span class="heading-group"><span class="panel-icon test-panel-icon" aria-hidden="true">＋</span><span><span class="panel-title">Test marker</span><small class="panel-subtitle">Generate a printable marker</small></span></span><span class="panel-index">DEMO</span></summary>
-            <p class="panel-copy">Generate a high-contrast marker to test your camera setup.</p>
+            <p class="panel-copy">Generate and show a marker to the camera. IDs 1–32 route to Zone A, 33–64 to Zone B, and 65–96 to Zone C.</p>
             <div class="marker-tools">
               <label for="marker-id">MARKER ID</label>
               <div class="marker-controls">
                 <input id="marker-id" type="number" min="0" max="96" value="7" aria-label="Test marker ID, from 0 to 96">
                 <button id="marker-button" class="button button-secondary" type="button">Generate</button>
-                {% if browser_camera %}<button id="simulate-scan-button" class="button button-primary" type="button">Simulate scan</button>{% endif %}
               </div>
             </div>
             <div class="marker-preview">

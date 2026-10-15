@@ -87,10 +87,10 @@ function. No separate frontend build command is required.
 
 The hosted version uses your browser's camera permission and securely uploads
 downscaled JPEG frames to the Flask function for ArUco detection. It does not
-store uploaded frames. Use HTTPS and allow camera access when prompted. The
-**Simulate scan** control is also available for previewing marker-to-zone
-routing. Cloud function storage is temporary; the Vercel demo is not intended
-to persist delivery state across cold starts.
+store uploaded frames. Use HTTPS and allow camera access when prompted. A
+camera-detected marker ID from 1–32 routes to Zone A, 33–64 to Zone B, and
+65–96 to Zone C. Cloud function storage is temporary; the Vercel demo is not
+intended to persist delivery state across cold starts.
 
 ## Tests
 

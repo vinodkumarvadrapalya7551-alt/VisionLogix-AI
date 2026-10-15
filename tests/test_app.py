@@ -36,7 +36,7 @@ class AppRouteTests(unittest.TestCase):
             [call("detections"), call("warehouse")],
         )
 
-    def test_cloud_camera_page_offers_browser_camera_and_simulated_scans(self):
+    def test_cloud_camera_page_offers_camera_and_real_marker_routing_guidance(self):
         with (
             patch.dict(app.config, {"CAMERA_ENABLED": False}),
             patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
@@ -49,7 +49,11 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Browser camera", response.data)
         self.assertIn(b'id="browser-camera"', response.data)
-        self.assertIn(b"Simulate scan", response.data)
+        self.assertNotIn(b"Simulate scan", response.data)
+        self.assertIn(b"IDs 1", response.data)
+        self.assertIn(b"Zone A", response.data)
+        self.assertIn(b"Zone B", response.data)
+        self.assertIn(b"Zone C", response.data)
         self.assertIn(b'data-camera-mode="browser"', response.data)
 
     def test_status_endpoint_reports_camera_initially_off(self):
@@ -141,27 +145,6 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["summary"]["total"], 0)
 
-    def test_demo_scan_routes_supported_marker_to_its_zone(self):
-        demo_warehouse = WarehouseService()
-        with (
-            patch("app.warehouse", demo_warehouse),
-            patch("app.state_store.save"),
-        ):
-            response = self.client.post("/api/demo/scan", json={"marker_id": 70})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["robots"][0]["marker_id"], 70)
-        self.assertEqual(response.json["robots"][0]["zone_name"], "Zone C")
-
-    def test_demo_scan_rejects_visual_only_and_unsupported_ids(self):
-        for marker_id in (0, 97, True):
-            with self.subTest(marker_id=marker_id):
-                response = self.client.post(
-                    "/api/demo/scan",
-                    json={"marker_id": marker_id},
-                )
-                self.assertEqual(response.status_code, 400)
-
     def test_camera_start_is_unavailable_in_cloud_demo(self):
         with patch.dict(app.config, {"CAMERA_ENABLED": False}):
             response = self.client.post("/api/camera/start")
@@ -170,32 +153,43 @@ class AppRouteTests(unittest.TestCase):
         self.assertFalse(response.json["running"])
         self.assertIn("unavailable", response.json["message"])
 
-    def test_browser_camera_frame_detects_marker_and_triggers_delivery(self):
+    def test_browser_camera_frame_routes_detected_marker_to_its_zone(self):
         dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
-        marker = cv2.aruco.generateImageMarker(dictionary, 70, 240, borderBits=1)
-        frame = np.full((400, 400, 3), 255, dtype=np.uint8)
-        frame[80:320, 80:320] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
-        encoded, jpeg = cv2.imencode(".jpg", frame)
-        self.assertTrue(encoded)
-        demo_warehouse = WarehouseService()
+        expected_zones = {7: "Zone A", 40: "Zone B", 70: "Zone C"}
 
-        with (
-            patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
-            patch("app.warehouse", demo_warehouse),
-            patch("app.state_store.save"),
-        ):
-            response = self.client.post(
-                "/api/camera/frame",
-                data=jpeg.tobytes(),
-                content_type="image/jpeg",
-            )
+        for marker_id, expected_zone in expected_zones.items():
+            with self.subTest(marker_id=marker_id):
+                marker = cv2.aruco.generateImageMarker(
+                    dictionary,
+                    marker_id,
+                    240,
+                    borderBits=1,
+                )
+                frame = np.full((400, 400, 3), 255, dtype=np.uint8)
+                frame[80:320, 80:320] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
+                encoded, jpeg = cv2.imencode(".jpg", frame)
+                self.assertTrue(encoded)
+                detected_warehouse = WarehouseService()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            [detection["marker_id"] for detection in response.json["detections"]],
-            [70],
-        )
-        self.assertEqual(response.json["warehouse"]["robots"][0]["zone_name"], "Zone C")
+                with (
+                    patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
+                    patch("app.warehouse", detected_warehouse),
+                    patch("app.state_store.save"),
+                ):
+                    response = self.client.post(
+                        "/api/camera/frame",
+                        data=jpeg.tobytes(),
+                        content_type="image/jpeg",
+                    )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    [detection["marker_id"] for detection in response.json["detections"]],
+                    [marker_id],
+                )
+                robot = response.json["warehouse"]["robots"][0]
+                self.assertEqual(robot["marker_id"], marker_id)
+                self.assertEqual(robot["zone_name"], expected_zone)
 
     def test_browser_camera_frame_rejects_non_jpeg_and_invalid_images(self):
         with patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}):
@@ -212,6 +206,11 @@ class AppRouteTests(unittest.TestCase):
 
         self.assertEqual(wrong_type.status_code, 415)
         self.assertEqual(invalid_image.status_code, 400)
+
+    def test_simulated_scan_endpoint_is_removed(self):
+        response = self.client.post("/api/demo/scan", json={"marker_id": 70})
+
+        self.assertEqual(response.status_code, 404)
 
 
 class CameraBackendTests(unittest.TestCase):

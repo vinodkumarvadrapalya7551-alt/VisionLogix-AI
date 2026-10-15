@@ -394,33 +394,6 @@ document.querySelector("#marker-button").addEventListener("click", () => {
   message.textContent = `Marker ${markerId} · 4×4 dictionary`;
 });
 
-document.querySelector("#simulate-scan-button")?.addEventListener("click", async () => {
-  const markerId = Number(document.querySelector("#marker-id").value);
-  const message = document.querySelector("#marker-message");
-  if (!Number.isInteger(markerId) || markerId < 1 || markerId > 96) {
-    message.textContent = "Choose a delivery marker ID from 1 to 96.";
-    return;
-  }
-
-  const button = document.querySelector("#simulate-scan-button");
-  button.disabled = true;
-  try {
-    const response = await fetch("/api/demo/scan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ marker_id: markerId }),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Could not simulate marker scan.");
-    message.textContent = `Simulated scan · Marker ${markerId} · ${zoneForMarker(markerId)}`;
-    renderWarehouseState(result);
-  } catch (error) {
-    message.textContent = error.message;
-  } finally {
-    button.disabled = false;
-  }
-});
-
 videoFeed.addEventListener("load", () => {
   videoPlaceholder.hidden = true;
   videoPlaceholder.classList.remove("is-starting");

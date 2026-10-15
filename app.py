@@ -122,23 +122,6 @@ def stop_camera():
     return jsonify({"running": False, "message": "Camera stopped."})
 
 
-@app.post("/api/demo/scan")
-def simulate_marker_scan():
-    payload = request.get_json()
-    marker_id = payload.get("marker_id") if isinstance(payload, dict) else None
-    if (
-        isinstance(marker_id, bool)
-        or not isinstance(marker_id, int)
-        or not 1 <= marker_id <= 96
-    ):
-        return jsonify({"error": "Choose a delivery marker ID from 1 to 96."}), 400
-
-    warehouse.observe_detections([{"marker_id": marker_id}])
-    state = warehouse.snapshot()
-    state_store.save("warehouse", state)
-    return jsonify(state)
-
-
 @app.post("/api/camera/frame")
 def process_camera_frame():
     if not app.config["BROWSER_CAMERA_ENABLED"]:
