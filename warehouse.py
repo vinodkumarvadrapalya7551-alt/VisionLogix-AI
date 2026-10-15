@@ -100,7 +100,7 @@ class DeliveryRobot:
 class WarehouseService:
     """Connect newly observed ArUco robot IDs to queued warehouse deliveries."""
 
-    def __init__(self, step_seconds: float = 0.35) -> None:
+    def __init__(self, step_seconds: float = 0.12) -> None:
         self.step_seconds = max(0.02, step_seconds)
         self._lock = threading.RLock()
         self._robots: dict[int, DeliveryRobot] = {}

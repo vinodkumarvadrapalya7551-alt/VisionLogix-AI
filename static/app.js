@@ -285,7 +285,12 @@ startButton.addEventListener("click", async () => {
       }
       browserCameraStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 30, max: 30 },
+        },
       });
       browserVideo.srcObject = browserCameraStream;
       await browserVideo.play();
@@ -341,7 +346,11 @@ async function processBrowserCameraFrames(stream) {
   let previousFrameAt = performance.now();
   while (browserCameraStream === stream && stream.active) {
     try {
-      if (browserVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (
+        browserVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        browserVideo.videoWidth > 0 &&
+        browserVideo.videoHeight > 0
+      ) {
         const scale = Math.min(1, 960 / browserVideo.videoWidth);
         frameCanvas.width = Math.round(browserVideo.videoWidth * scale);
         frameCanvas.height = Math.round(browserVideo.videoHeight * scale);
@@ -375,7 +384,7 @@ async function processBrowserCameraFrames(stream) {
     } catch (error) {
       cameraMessage.textContent = error.message;
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
   }
 }
 

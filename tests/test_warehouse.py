@@ -31,6 +31,11 @@ class PathfindingTests(unittest.TestCase):
 
 
 class WarehouseServiceTests(unittest.TestCase):
+    def test_default_robot_movement_step_is_responsive(self):
+        warehouse = WarehouseService()
+
+        self.assertEqual(warehouse.step_seconds, 0.12)
+
     def test_marker_id_ranges_select_the_configured_zone(self):
         self.assertEqual(zone_for_marker(1)["id"], "1")
         self.assertEqual(zone_for_marker(32)["id"], "1")
