@@ -9,6 +9,7 @@ const detectionList = document.querySelector("#detection-list");
 const markerCount = document.querySelector("#marker-count");
 const detectionHeading = document.querySelector("#detection-heading");
 let startPending = false;
+const cameraEnabled = startButton.dataset.cameraEnabled !== "false";
 
 function setCameraState(running, message, starting = false) {
   const wasRunning = cameraState.dataset.state === "on";
@@ -17,10 +18,12 @@ function setCameraState(running, message, starting = false) {
     ? "Camera connected"
     : starting
       ? "Connecting camera"
-      : "Camera offline";
+      : cameraEnabled
+        ? "Camera offline"
+        : "Cloud demo";
   cameraState.setAttribute("aria-label", connectionLabel.textContent);
   cameraMessage.textContent = message;
-  startButton.disabled = running || startPending;
+  startButton.disabled = !cameraEnabled || running || startPending;
   stopButton.disabled = !running && !starting;
 
   if (running && !wasRunning) {
@@ -264,6 +267,33 @@ document.querySelector("#marker-button").addEventListener("click", () => {
   image.src = `/api/marker/${markerId}.png?t=${Date.now()}`;
   image.alt = `Printable ArUco test marker, ID ${markerId}`;
   message.textContent = `Marker ${markerId} · 4×4 dictionary`;
+});
+
+document.querySelector("#simulate-scan-button")?.addEventListener("click", async () => {
+  const markerId = Number(document.querySelector("#marker-id").value);
+  const message = document.querySelector("#marker-message");
+  if (!Number.isInteger(markerId) || markerId < 1 || markerId > 96) {
+    message.textContent = "Choose a delivery marker ID from 1 to 96.";
+    return;
+  }
+
+  const button = document.querySelector("#simulate-scan-button");
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/demo/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ marker_id: markerId }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not simulate marker scan.");
+    message.textContent = `Simulated scan · Marker ${markerId} · ${zoneForMarker(markerId)}`;
+    await refreshWarehouse();
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
 });
 
 videoFeed.addEventListener("load", () => {

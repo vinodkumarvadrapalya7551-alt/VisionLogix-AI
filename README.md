@@ -79,6 +79,18 @@ avoid glare, and make the marker at least 40 pixels wide in the camera image.
 The reported position is the marker's center in camera-frame pixels; it is not
 a calibrated real-world measurement.
 
+## Deploy to Vercel
+
+Import this repository in Vercel with the project root set to the repository
+root. The included `vercel.json` routes the Flask app through Vercel's Python
+function. No separate frontend build command is required.
+
+The hosted version runs in cloud functions and cannot access a webcam attached
+to your computer. It disables camera controls and provides **Simulate scan** in
+the Test marker panel so you can preview marker-to-zone routing and fleet
+activity. Cloud function storage is temporary; the Vercel demo is not intended
+to persist delivery state across cold starts.
+
 ## Tests
 
 ```powershell

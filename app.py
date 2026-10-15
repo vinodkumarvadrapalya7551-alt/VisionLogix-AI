@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 
 from visionlogix.camera import CameraService
 from visionlogix.detector import create_marker_png
@@ -12,9 +12,15 @@ from warehouse import WarehouseService
 
 
 app = Flask(__name__)
+app.config["CAMERA_ENABLED"] = os.environ.get("VERCEL") != "1"
 camera = CameraService(camera_index=int(os.environ.get("CAMERA_INDEX", "1")))
 warehouse = WarehouseService()
-state_store = AppStateStore(Path(app.instance_path) / "visionlogix.sqlite3")
+state_path = (
+    Path("/tmp/visionlogix.sqlite3")
+    if os.environ.get("VERCEL") == "1"
+    else Path(app.instance_path) / "visionlogix.sqlite3"
+)
+state_store = AppStateStore(state_path)
 saved_warehouse = state_store.load("warehouse")
 if saved_warehouse is not None:
     warehouse.restore(saved_warehouse)
@@ -26,7 +32,10 @@ def index() -> str:
     warehouse.reset()
     state_store.clear("detections")
     state_store.clear("warehouse")
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        camera_enabled=app.config["CAMERA_ENABLED"],
+    )
 
 
 @app.get("/favicon.ico")
@@ -37,6 +46,15 @@ def favicon():
 @app.get("/api/status")
 def status():
     current_status = camera.status()
+    if not app.config["CAMERA_ENABLED"]:
+        current_status.update(
+            running=False,
+            starting=False,
+            detections=[],
+            message="Live camera detection is unavailable in the Vercel demo.",
+        )
+        current_status["last_detections"] = []
+        return jsonify(current_status)
     if current_status["detections"]:
         state_store.save("detections", current_status["detections"])
     current_status["last_detections"] = (
@@ -47,6 +65,8 @@ def status():
 
 @app.get("/api/detections")
 def detections():
+    if not app.config["CAMERA_ENABLED"]:
+        return jsonify([])
     current_detections = camera.detections()
     if current_detections:
         state_store.save("detections", current_detections)
@@ -72,14 +92,41 @@ def reset_warehouse():
 
 @app.post("/api/camera/start")
 def start_camera():
+    if not app.config["CAMERA_ENABLED"]:
+        return jsonify({
+            "running": False,
+            "message": "Live camera detection is unavailable in the Vercel demo.",
+        }), 503
     started, message = camera.start()
     return jsonify({"running": started, "message": message}), 200 if started else 503
 
 
 @app.post("/api/camera/stop")
 def stop_camera():
+    if not app.config["CAMERA_ENABLED"]:
+        return jsonify({
+            "running": False,
+            "message": "Live camera detection is unavailable in the Vercel demo.",
+        })
     camera.stop()
     return jsonify({"running": False, "message": "Camera stopped."})
+
+
+@app.post("/api/demo/scan")
+def simulate_marker_scan():
+    payload = request.get_json()
+    marker_id = payload.get("marker_id") if isinstance(payload, dict) else None
+    if (
+        isinstance(marker_id, bool)
+        or not isinstance(marker_id, int)
+        or not 1 <= marker_id <= 96
+    ):
+        return jsonify({"error": "Choose a delivery marker ID from 1 to 96."}), 400
+
+    warehouse.observe_detections([{"marker_id": marker_id}])
+    state = warehouse.snapshot()
+    state_store.save("warehouse", state)
+    return jsonify(state)
 
 
 @app.get("/api/marker/<int:marker_id>.png")
@@ -93,6 +140,10 @@ def marker_image(marker_id: int):
 
 @app.get("/video_feed")
 def video_feed():
+    if not app.config["CAMERA_ENABLED"]:
+        return jsonify({
+            "error": "Live camera detection is unavailable in the Vercel demo."
+        }), 503
     frame_id, first_jpeg, running = camera.wait_for_frame(after_frame_id=0, timeout=0)
     if not running or first_jpeg is None:
         return jsonify({"error": "Camera is not ready to stream frames."}), 503

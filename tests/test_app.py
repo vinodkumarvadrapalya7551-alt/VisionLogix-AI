@@ -36,6 +36,20 @@ class AppRouteTests(unittest.TestCase):
             [call("detections"), call("warehouse")],
         )
 
+    def test_cloud_demo_page_disables_camera_and_offers_simulated_scans(self):
+        with (
+            patch.dict(app.config, {"CAMERA_ENABLED": False}),
+            patch("app.camera.stop"),
+            patch("app.warehouse.reset"),
+            patch("app.state_store.clear"),
+        ):
+            response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Camera detection is unavailable here", response.data)
+        self.assertIn(b"Simulate scan", response.data)
+        self.assertIn(b'data-camera-enabled="false" disabled', response.data)
+
     def test_status_endpoint_reports_camera_initially_off(self):
         response = self.client.get("/api/status")
 
@@ -124,6 +138,35 @@ class AppRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["summary"]["total"], 0)
+
+    def test_demo_scan_routes_supported_marker_to_its_zone(self):
+        demo_warehouse = WarehouseService()
+        with (
+            patch("app.warehouse", demo_warehouse),
+            patch("app.state_store.save"),
+        ):
+            response = self.client.post("/api/demo/scan", json={"marker_id": 70})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["robots"][0]["marker_id"], 70)
+        self.assertEqual(response.json["robots"][0]["zone_name"], "Zone C")
+
+    def test_demo_scan_rejects_visual_only_and_unsupported_ids(self):
+        for marker_id in (0, 97, True):
+            with self.subTest(marker_id=marker_id):
+                response = self.client.post(
+                    "/api/demo/scan",
+                    json={"marker_id": marker_id},
+                )
+                self.assertEqual(response.status_code, 400)
+
+    def test_camera_start_is_unavailable_in_cloud_demo(self):
+        with patch.dict(app.config, {"CAMERA_ENABLED": False}):
+            response = self.client.post("/api/camera/start")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json["running"])
+        self.assertIn("unavailable", response.json["message"])
 
 
 class CameraBackendTests(unittest.TestCase):
