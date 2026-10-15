@@ -36,9 +36,10 @@ class AppRouteTests(unittest.TestCase):
             [call("detections"), call("warehouse")],
         )
 
-    def test_cloud_demo_page_disables_camera_and_offers_simulated_scans(self):
+    def test_cloud_camera_page_offers_browser_camera_and_simulated_scans(self):
         with (
             patch.dict(app.config, {"CAMERA_ENABLED": False}),
+            patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
             patch("app.camera.stop"),
             patch("app.warehouse.reset"),
             patch("app.state_store.clear"),
@@ -46,9 +47,10 @@ class AppRouteTests(unittest.TestCase):
             response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Camera detection is unavailable here", response.data)
+        self.assertIn(b"Browser camera", response.data)
+        self.assertIn(b'id="browser-camera"', response.data)
         self.assertIn(b"Simulate scan", response.data)
-        self.assertIn(b'data-camera-enabled="false" disabled', response.data)
+        self.assertIn(b'data-camera-mode="browser"', response.data)
 
     def test_status_endpoint_reports_camera_initially_off(self):
         response = self.client.get("/api/status")
@@ -167,6 +169,49 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertFalse(response.json["running"])
         self.assertIn("unavailable", response.json["message"])
+
+    def test_browser_camera_frame_detects_marker_and_triggers_delivery(self):
+        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
+        marker = cv2.aruco.generateImageMarker(dictionary, 70, 240, borderBits=1)
+        frame = np.full((400, 400, 3), 255, dtype=np.uint8)
+        frame[80:320, 80:320] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
+        encoded, jpeg = cv2.imencode(".jpg", frame)
+        self.assertTrue(encoded)
+        demo_warehouse = WarehouseService()
+
+        with (
+            patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
+            patch("app.warehouse", demo_warehouse),
+            patch("app.state_store.save"),
+        ):
+            response = self.client.post(
+                "/api/camera/frame",
+                data=jpeg.tobytes(),
+                content_type="image/jpeg",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [detection["marker_id"] for detection in response.json["detections"]],
+            [70],
+        )
+        self.assertEqual(response.json["warehouse"]["robots"][0]["zone_name"], "Zone C")
+
+    def test_browser_camera_frame_rejects_non_jpeg_and_invalid_images(self):
+        with patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}):
+            wrong_type = self.client.post(
+                "/api/camera/frame",
+                data=b"image",
+                content_type="text/plain",
+            )
+            invalid_image = self.client.post(
+                "/api/camera/frame",
+                data=b"not an image",
+                content_type="image/jpeg",
+            )
+
+        self.assertEqual(wrong_type.status_code, 415)
+        self.assertEqual(invalid_image.status_code, 400)
 
 
 class CameraBackendTests(unittest.TestCase):

@@ -24,9 +24,9 @@
           <a class="nav-link" href="#warehouse">Warehouse</a>
         </nav>
         <div class="topbar-meta">
-          <div class="stage-label"><span class="stage-dot"></span> STAGE 02 <span class="stage-divider">/</span> {{ "LOCAL OPERATIONS" if camera_enabled else "CLOUD DEMO" }}</div>
-          <div id="connection-state" class="connection-state" data-state="off" aria-label="{{ 'Camera offline' if camera_enabled else 'Camera unavailable in cloud demo' }}">
-            <span class="connection-dot"></span><span id="connection-label">{{ "Camera offline" if camera_enabled else "Cloud demo" }}</span>
+          <div class="stage-label"><span class="stage-dot"></span> STAGE 02 <span class="stage-divider">/</span> {{ "CLOUD CAMERA" if browser_camera else "LOCAL OPERATIONS" }}</div>
+          <div id="connection-state" class="connection-state" data-state="off" aria-label="Camera offline">
+            <span class="connection-dot"></span><span id="connection-label">Camera offline</span>
           </div>
         </div>
       </header>
@@ -40,23 +40,24 @@
         <div class="hero-note">
           <span class="hero-note-icon" aria-hidden="true">⌗</span>
           <span><strong>Vision system</strong><small>ArUco 4×4 · IDs 0–96</small></span>
-          <span class="hero-note-state"><i></i> {{ "LOCAL" if camera_enabled else "DEMO" }}</span>
+          <span class="hero-note-state"><i></i> {{ "BROWSER" if browser_camera else "LOCAL" }}</span>
         </div>
       </section>
 
       <section class="workspace" id="camera-workspace" aria-label="Live marker detection">
         <div class="video-panel panel">
           <div class="panel-heading">
-            <div class="heading-group"><span class="panel-icon camera-panel-icon" aria-hidden="true">◉</span><span><span class="panel-title">Vision feed</span><small class="panel-subtitle">{{ "Real-time marker analysis" if camera_enabled else "Camera unavailable in cloud demo" }}</small></span></div>
+            <div class="heading-group"><span class="panel-icon camera-panel-icon" aria-hidden="true">◉</span><span><span class="panel-title">Vision feed</span><small class="panel-subtitle">{{ "Browser camera · permission required" if browser_camera else "Real-time marker analysis" }}</small></span></div>
             <span id="frame-size" class="subtle-label">AWAITING CAMERA</span>
           </div>
           <div class="video-stage">
             <img id="video-feed" alt="Live camera feed with detected markers outlined">
             <div id="video-placeholder" class="video-placeholder">
               <div class="camera-icon" aria-hidden="true">⌗</div>
-              <strong>{{ "Camera feed is paused" if camera_enabled else "Camera detection is unavailable here" }}</strong>
-              <span>{{ "Connect a camera to begin marker detection." if camera_enabled else "Use Simulate scan below to preview a warehouse delivery." }}</span>
+              <strong>Camera feed is paused</strong>
+              <span>Connect a camera to begin marker detection.</span>
             </div>
+            <video id="browser-camera" autoplay playsinline muted hidden></video>
             <div class="video-overlay"><span><i class="overlay-dot"></i> LIVE ANALYSIS</span><span id="fps-value">0.0 FPS</span></div>
           </div>
           <div class="video-footer">
@@ -68,15 +69,15 @@
         <aside class="side-panel">
           <section class="panel control-panel">
             <div class="panel-heading">
-              <div class="heading-group"><span class="panel-icon control-panel-icon" aria-hidden="true">↗</span><span><span class="panel-title">{{ "Camera control" if camera_enabled else "Cloud demo" }}</span><small class="panel-subtitle">{{ "Private · this device only" if camera_enabled else "Simulation mode · no webcam" }}</small></span></div>
+              <div class="heading-group"><span class="panel-icon control-panel-icon" aria-hidden="true">↗</span><span><span class="panel-title">Camera control</span><small class="panel-subtitle">{{ "Browser permission required" if browser_camera else "Private · this device only" }}</small></span></div>
               <span class="panel-index">01</span>
             </div>
-            <p class="panel-copy">{{ "Connect a camera to scan for robot markers. Video stays on this device." if camera_enabled else "This hosted demo cannot access your local webcam. Generate a marker and simulate a scan to see its delivery route." }}</p>
+            <p class="panel-copy">{{ "Allow camera access when prompted. Camera frames are sent securely to VisionLogix for marker detection and are not stored." if browser_camera else "Connect a camera to scan for robot markers. Video stays on this device." }}</p>
             <div class="button-row">
-              <button id="start-button" class="button button-primary" type="button" data-camera-enabled="{{ 'true' if camera_enabled else 'false' }}" {% if not camera_enabled %}disabled{% endif %}><span>Connect camera</span><span aria-hidden="true">↗</span></button>
-              <button id="stop-button" class="button button-secondary" type="button" disabled {% if not camera_enabled %}hidden{% endif %}>Stop</button>
+              <button id="start-button" class="button button-primary" type="button" data-camera-mode="{{ 'browser' if browser_camera else 'server' }}"><span>Connect camera</span><span aria-hidden="true">↗</span></button>
+              <button id="stop-button" class="button button-secondary" type="button" disabled>Stop</button>
             </div>
-            <p id="camera-message" class="camera-message" role="status">{{ "Camera is not connected." if camera_enabled else "Cloud demo mode: use Simulate scan to start a delivery." }}</p>
+            <p id="camera-message" class="camera-message" role="status">{{ "Allow camera access when prompted to start scanning." if browser_camera else "Camera is not connected." }}</p>
           </section>
 
           <section class="panel detections-panel">
@@ -92,13 +93,13 @@
 
           <details class="panel test-panel">
             <summary><span class="heading-group"><span class="panel-icon test-panel-icon" aria-hidden="true">＋</span><span><span class="panel-title">Test marker</span><small class="panel-subtitle">Generate a printable marker</small></span></span><span class="panel-index">DEMO</span></summary>
-            <p class="panel-copy">{{ "Generate a high-contrast marker to test your camera setup." if camera_enabled else "Generate a high-contrast marker image or simulate its scan in the warehouse." }}</p>
+            <p class="panel-copy">Generate a high-contrast marker to test your camera setup.</p>
             <div class="marker-tools">
               <label for="marker-id">MARKER ID</label>
               <div class="marker-controls">
                 <input id="marker-id" type="number" min="0" max="96" value="7" aria-label="Test marker ID, from 0 to 96">
                 <button id="marker-button" class="button button-secondary" type="button">Generate</button>
-                {% if not camera_enabled %}<button id="simulate-scan-button" class="button button-primary" type="button">Simulate scan</button>{% endif %}
+                {% if browser_camera %}<button id="simulate-scan-button" class="button button-primary" type="button">Simulate scan</button>{% endif %}
               </div>
             </div>
             <div class="marker-preview">
@@ -131,7 +132,7 @@
               <div><span class="zone-swatch zone-1"></span><span>Zone A <small>IDs 1–32</small></span></div>
               <div><span class="zone-swatch zone-2"></span><span>Zone B <small>IDs 33–64</small></span></div>
               <div><span class="zone-swatch zone-3"></span><span>Zone C <small>IDs 65–96</small></span></div>
-              <p>{{ "Each ArUco ID represents one virtual robot. IDs are recognized by camera; ID 0 is visual-only." if camera_enabled else "Each ArUco ID represents one virtual robot. Simulate a scan to trigger its route; ID 0 is visual-only." }}</p>
+              <p>{{ "Each ArUco ID represents one virtual robot. IDs are recognized by camera; ID 0 is visual-only." if camera_available else "Each ArUco ID represents one virtual robot. Simulate a scan to trigger its route; ID 0 is visual-only." }}</p>
             </div>
             <div class="robot-list-panel">
               <div class="list-heading"><h2 class="panel-title">Fleet activity</h2><span class="list-live-label"><i></i> LIVE</span></div>

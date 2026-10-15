@@ -85,10 +85,11 @@ Import this repository in Vercel with the project root set to the repository
 root. The included `vercel.json` routes the Flask app through Vercel's Python
 function. No separate frontend build command is required.
 
-The hosted version runs in cloud functions and cannot access a webcam attached
-to your computer. It disables camera controls and provides **Simulate scan** in
-the Test marker panel so you can preview marker-to-zone routing and fleet
-activity. Cloud function storage is temporary; the Vercel demo is not intended
+The hosted version uses your browser's camera permission and securely uploads
+downscaled JPEG frames to the Flask function for ArUco detection. It does not
+store uploaded frames. Use HTTPS and allow camera access when prompted. The
+**Simulate scan** control is also available for previewing marker-to-zone
+routing. Cloud function storage is temporary; the Vercel demo is not intended
 to persist delivery state across cold starts.
 
 ## Tests

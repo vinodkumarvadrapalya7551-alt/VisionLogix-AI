@@ -4,12 +4,15 @@ const cameraMessage = document.querySelector("#camera-message");
 const startButton = document.querySelector("#start-button");
 const stopButton = document.querySelector("#stop-button");
 const videoFeed = document.querySelector("#video-feed");
+const browserVideo = document.querySelector("#browser-camera");
 const videoPlaceholder = document.querySelector("#video-placeholder");
 const detectionList = document.querySelector("#detection-list");
 const markerCount = document.querySelector("#marker-count");
 const detectionHeading = document.querySelector("#detection-heading");
 let startPending = false;
-const cameraEnabled = startButton.dataset.cameraEnabled !== "false";
+const browserCameraEnabled = startButton.dataset.cameraMode === "browser";
+let browserCameraStream = null;
+const frameCanvas = document.createElement("canvas");
 
 function setCameraState(running, message, starting = false) {
   const wasRunning = cameraState.dataset.state === "on";
@@ -18,20 +21,27 @@ function setCameraState(running, message, starting = false) {
     ? "Camera connected"
     : starting
       ? "Connecting camera"
-      : cameraEnabled
+      : !browserCameraEnabled
         ? "Camera offline"
-        : "Cloud demo";
+        : "Camera offline";
   cameraState.setAttribute("aria-label", connectionLabel.textContent);
   cameraMessage.textContent = message;
-  startButton.disabled = !cameraEnabled || running || startPending;
+  startButton.disabled = running || startPending;
   stopButton.disabled = !running && !starting;
 
   if (running && !wasRunning) {
-    videoFeed.src = `/video_feed?t=${Date.now()}`;
-    videoFeed.hidden = false;
+    if (browserCameraEnabled) {
+      videoFeed.hidden = true;
+      browserVideo.hidden = false;
+      videoPlaceholder.hidden = true;
+    } else {
+      videoFeed.src = `/video_feed?t=${Date.now()}`;
+      videoFeed.hidden = false;
+    }
   } else if (!running) {
     videoFeed.removeAttribute("src");
     videoFeed.hidden = true;
+    browserVideo.hidden = true;
     videoPlaceholder.hidden = false;
     document.querySelector("#frame-size").textContent = "AWAITING CAMERA";
     document.querySelector("#fps-value").textContent = "0.0 FPS";
@@ -180,6 +190,7 @@ function renderRobotList(robots) {
 }
 
 async function refreshWarehouse() {
+  if (browserCameraEnabled) return;
   try {
     const response = await fetch("/api/warehouse", { cache: "no-store" });
     if (!response.ok) throw new Error("Could not read warehouse status.");
@@ -200,7 +211,20 @@ async function refreshWarehouse() {
   }
 }
 
+function renderWarehouseState(state) {
+  document.querySelector("#warehouse-message").textContent =
+    state.message.toUpperCase();
+  document.querySelector("#warehouse-total").textContent = String(state.summary.total);
+  document.querySelector("#warehouse-moving").textContent = String(state.summary.moving);
+  document.querySelector("#warehouse-queued").textContent = String(state.summary.queued);
+  document.querySelector("#warehouse-delivered").textContent =
+    String(state.summary.delivered);
+  renderRobotList(state.robots);
+  window.updateWarehouseScene?.(state);
+}
+
 async function refreshStatus() {
+  if (browserCameraEnabled) return;
   try {
     const response = await fetch("/api/status", { cache: "no-store" });
     if (!response.ok) throw new Error("Could not read camera status.");
@@ -232,6 +256,35 @@ async function refreshStatus() {
 startButton.addEventListener("click", async () => {
   startPending = true;
   setCameraState(false, "Opening camera and waiting for the first frame.", true);
+  if (browserCameraEnabled) {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("This browser does not support secure camera access.");
+      }
+      browserCameraStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+      });
+      browserVideo.srcObject = browserCameraStream;
+      await browserVideo.play();
+      startPending = false;
+      setCameraState(true, "Camera connected. Scanning for ArUco markers.");
+      void processBrowserCameraFrames(browserCameraStream);
+    } catch (error) {
+      browserCameraStream?.getTracks().forEach((track) => track.stop());
+      browserCameraStream = null;
+      startPending = false;
+      const message =
+        error.name === "NotAllowedError"
+          ? "Camera permission was denied. Allow camera access in your browser, then try again."
+          : error.name === "NotFoundError"
+            ? "No camera was found on this device."
+            : error.message || "Could not connect to the camera.";
+      setCameraState(false, message);
+    }
+    return;
+  }
+
   try {
     const response = await fetch("/api/camera/start", { method: "POST" });
     const result = await response.json();
@@ -245,6 +298,14 @@ startButton.addEventListener("click", async () => {
 
 stopButton.addEventListener("click", async () => {
   stopButton.disabled = true;
+  if (browserCameraEnabled) {
+    browserCameraStream?.getTracks().forEach((track) => track.stop());
+    browserCameraStream = null;
+    browserVideo.pause();
+    browserVideo.srcObject = null;
+    setCameraState(false, "Camera stopped.");
+    return;
+  }
   try {
     const response = await fetch("/api/camera/stop", { method: "POST" });
     const result = await response.json();
@@ -253,6 +314,48 @@ stopButton.addEventListener("click", async () => {
     cameraMessage.textContent = "Could not stop the camera service.";
   }
 });
+
+async function processBrowserCameraFrames(stream) {
+  let previousFrameAt = performance.now();
+  while (browserCameraStream === stream && stream.active) {
+    try {
+      if (browserVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        const scale = Math.min(1, 960 / browserVideo.videoWidth);
+        frameCanvas.width = Math.round(browserVideo.videoWidth * scale);
+        frameCanvas.height = Math.round(browserVideo.videoHeight * scale);
+        const context = frameCanvas.getContext("2d");
+        context.drawImage(browserVideo, 0, 0, frameCanvas.width, frameCanvas.height);
+
+        const blob = await new Promise((resolve, reject) => {
+          frameCanvas.toBlob(
+            (image) => image ? resolve(image) : reject(new Error("Could not encode camera frame.")),
+            "image/jpeg",
+            0.72,
+          );
+        });
+        const response = await fetch("/api/camera/frame", {
+          method: "POST",
+          headers: { "Content-Type": "image/jpeg" },
+          body: blob,
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "Camera frame processing failed.");
+
+        renderDetections(result.detections);
+        renderWarehouseState(result.warehouse);
+        document.querySelector("#frame-size").textContent =
+          `${result.frame_width} × ${result.frame_height}`;
+        const now = performance.now();
+        document.querySelector("#fps-value").textContent =
+          `${(1000 / Math.max(1, now - previousFrameAt)).toFixed(1)} FPS`;
+        previousFrameAt = now;
+      }
+    } catch (error) {
+      cameraMessage.textContent = error.message;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+  }
+}
 
 document.querySelector("#marker-button").addEventListener("click", () => {
   const input = document.querySelector("#marker-id");
@@ -288,7 +391,7 @@ document.querySelector("#simulate-scan-button")?.addEventListener("click", async
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not simulate marker scan.");
     message.textContent = `Simulated scan · Marker ${markerId} · ${zoneForMarker(markerId)}`;
-    await refreshWarehouse();
+    renderWarehouseState(result);
   } catch (error) {
     message.textContent = error.message;
   } finally {
@@ -304,5 +407,10 @@ videoFeed.addEventListener("error", () => {
   videoPlaceholder.hidden = false;
 });
 
-refreshStatus();
-window.setInterval(refreshStatus, 500);
+if (browserCameraEnabled) {
+  cameraMessage.textContent =
+    "Allow camera access when prompted. Camera frames are sent securely for marker detection.";
+} else {
+  refreshStatus();
+  window.setInterval(refreshStatus, 500);
+}
