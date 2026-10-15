@@ -53,9 +53,9 @@
           <div class="video-stage">
             <img id="video-feed" alt="Live camera feed with detected markers outlined">
             <div id="video-placeholder" class="video-placeholder">
-              <div class="camera-icon" aria-hidden="true">⌗</div>
-              <strong>Camera feed is paused</strong>
-              <span>Connect a camera to begin marker detection.</span>
+              <div id="camera-placeholder-icon" class="camera-icon" aria-hidden="true">⌗</div>
+              <strong id="camera-placeholder-title">Camera feed is paused</strong>
+              <span id="camera-placeholder-message">Connect a camera to begin marker detection.</span>
             </div>
             <video id="browser-camera" autoplay playsinline muted hidden></video>
             <div class="video-overlay"><span><i class="overlay-dot"></i> LIVE ANALYSIS</span><span id="fps-value">0.0 FPS</span></div>

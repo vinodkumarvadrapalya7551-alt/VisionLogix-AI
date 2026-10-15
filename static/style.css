@@ -247,6 +247,16 @@ h1 span { color: #7e8b83; }
 }
 .video-placeholder[hidden] { display: none; }
 .video-placeholder strong { color: #e1e8df; font-size: 14px; font-weight: 600; }
+.video-placeholder.is-starting { color: #b0bbb3; }
+.video-placeholder.is-starting .camera-icon {
+  color: var(--amber);
+  border-color: #57462d;
+  background: linear-gradient(145deg, #30271b, #1e1b16);
+  animation: camera-opening-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes camera-opening-pulse {
+  to { opacity: .55; transform: scale(.96); }
+}
 .camera-icon {
   display: grid;
   width: 58px;

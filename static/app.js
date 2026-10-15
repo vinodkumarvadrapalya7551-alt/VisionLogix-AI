@@ -6,6 +6,8 @@ const stopButton = document.querySelector("#stop-button");
 const videoFeed = document.querySelector("#video-feed");
 const browserVideo = document.querySelector("#browser-camera");
 const videoPlaceholder = document.querySelector("#video-placeholder");
+const placeholderTitle = document.querySelector("#camera-placeholder-title");
+const placeholderMessage = document.querySelector("#camera-placeholder-message");
 const detectionList = document.querySelector("#detection-list");
 const markerCount = document.querySelector("#marker-count");
 const detectionHeading = document.querySelector("#detection-heading");
@@ -29,11 +31,28 @@ function setCameraState(running, message, starting = false) {
   startButton.disabled = running || startPending;
   stopButton.disabled = !running && !starting;
 
+  if (starting) {
+    videoFeed.removeAttribute("src");
+    videoFeed.hidden = true;
+    browserVideo.hidden = true;
+    videoPlaceholder.hidden = false;
+    videoPlaceholder.classList.add("is-starting");
+    placeholderTitle.textContent = "Opening camera…";
+    placeholderMessage.textContent = browserCameraEnabled
+      ? "Waiting for camera permission and the first video frame."
+      : "Connecting to the camera and waiting for the first frame.";
+    document.querySelector("#frame-size").textContent = "CONNECTING CAMERA";
+    return;
+  }
+
   if (running && !wasRunning) {
+    videoPlaceholder.classList.add("is-starting");
+    videoPlaceholder.hidden = false;
+    placeholderTitle.textContent = "Camera connected";
+    placeholderMessage.textContent = "Waiting for the first live video frame.";
     if (browserCameraEnabled) {
       videoFeed.hidden = true;
       browserVideo.hidden = false;
-      videoPlaceholder.hidden = true;
     } else {
       videoFeed.src = `/video_feed?t=${Date.now()}`;
       videoFeed.hidden = false;
@@ -43,6 +62,9 @@ function setCameraState(running, message, starting = false) {
     videoFeed.hidden = true;
     browserVideo.hidden = true;
     videoPlaceholder.hidden = false;
+    videoPlaceholder.classList.remove("is-starting");
+    placeholderTitle.textContent = "Camera feed is paused";
+    placeholderMessage.textContent = "Connect a camera to begin marker detection.";
     document.querySelector("#frame-size").textContent = "AWAITING CAMERA";
     document.querySelector("#fps-value").textContent = "0.0 FPS";
     renderDetections([]);
@@ -401,6 +423,12 @@ document.querySelector("#simulate-scan-button")?.addEventListener("click", async
 
 videoFeed.addEventListener("load", () => {
   videoPlaceholder.hidden = true;
+  videoPlaceholder.classList.remove("is-starting");
+});
+
+browserVideo.addEventListener("loadeddata", () => {
+  videoPlaceholder.hidden = true;
+  videoPlaceholder.classList.remove("is-starting");
 });
 
 videoFeed.addEventListener("error", () => {
