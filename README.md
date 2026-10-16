@@ -30,7 +30,12 @@ The latest non-empty camera detection snapshot and warehouse delivery state are
 saved locally in `instance/visionlogix.sqlite3` while the app is running, so
 they can be restored after a server restart. Loading or refreshing the home
 page starts a fresh run: it stops the camera and clears the saved detections
-and warehouse deliveries.
+and current warehouse deliveries. The separate marker-history table is not
+cleared; open **Database** in the navigation to view saved deliveries from
+current and earlier runs.
+Each dashboard load starts a new run ID. Within a run, a marker is stored once
+even if the camera sends many repeated frames; showing the same marker in a
+later run creates a separate history record.
 
 Three.js and its orbit controls are bundled under `static/vendor`, so the
 dashboard does not need internet access at runtime. `package.json` and
@@ -112,10 +117,16 @@ be interpreted as real-world warehouse throughput or productivity.
 - `GET /api/warehouse` — delivery state, routes, dynamic/static obstacles,
   movement progress, and session metrics.
 - `GET /api/metrics` — current performance metrics as JSON.
+- `GET /api/marker-records?limit=100` — saved marker delivery history, newest
+  first. The limit must be between 1 and 500. Each record includes marker ID,
+  assigned zone, camera-image center, delivery status, and timestamps.
+- `GET /database` — browser view of saved marker records; it refreshes every
+  five seconds and can also be refreshed manually.
 - `POST /api/camera/start` and `POST /api/camera/stop` — control the local
   webcam.
 - `POST /api/camera/frame` — Vercel browser-camera JPEG detection endpoint;
-  returns detected marker data and the resulting warehouse snapshot.
+  accepts JPEG bytes with `X-Run-ID` set to the UUID supplied with the dashboard
+  page, then returns detected marker data and the resulting warehouse snapshot.
 - `POST /api/warehouse/reset` — clear the current in-memory delivery session.
 - `POST /api/warehouse/obstacles` — replace temporary blocked grid cells and
   attempt to replan an affected moving robot. Example:
@@ -153,16 +164,30 @@ a calibrated real-world measurement.
 
 Import this repository in Vercel with the project root set to the repository
 root. The included `vercel.json` routes the Flask app through Vercel's Python
-function. No separate frontend build command is required.
+function. No separate frontend build command is required. Marker history uses
+a pure-Python PostgreSQL driver for compatibility with Vercel's managed
+runtime.
 
 The hosted version uses your browser's camera permission and securely uploads
 downscaled JPEG frames to the Flask function for ArUco detection. Uploaded
 frames are processed in memory and not written as image files. Use HTTPS and
 allow camera access when prompted. A camera-detected marker ID from 1–32
 routes to Zone A, 33–64 to Zone B, and 65–96 to Zone C. Cloud function storage
-is temporary; the Vercel demo is not intended to persist delivery state across
-cold starts. The online demo reflects the last published deployment; local
-changes must be separately deployed before they appear there.
+is temporary and cannot be used for durable SQLite data. To persist marker
+history in the deployed app, create a Neon Postgres database and configure its
+connection string as the `DATABASE_URL` environment variable in the Vercel
+project settings for every deployment environment you use. The application
+requires this variable for persistent marker history on Vercel. If it is
+missing or cannot connect, marker detection and delivery simulation continue,
+the dashboard reports that the marker history was not saved, and `/database`
+shows the database configuration error. Local development uses SQLite unless
+`DATABASE_URL` is set. Never commit the connection string. After configuring
+the variable, redeploy the project.
+
+The database view and records API currently have no authentication layer.
+Anyone who can access the deployed app can view its marker IDs, image-space
+positions, destinations, statuses, and timestamps; do not store sensitive
+information in these records.
 
 ## Tests
 

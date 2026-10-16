@@ -9,6 +9,7 @@ import numpy as np
 
 from app import app, warehouse
 from visionlogix.camera import CameraService, open_camera
+from visionlogix.marker_history import MarkerHistoryStore
 from visionlogix.state_store import AppStateStore
 from warehouse import WarehouseService
 
@@ -35,6 +36,61 @@ class AppRouteTests(unittest.TestCase):
             clear_saved_state.call_args_list,
             [call("detections"), call("warehouse")],
         )
+
+    def test_database_page_renders_saved_marker_history_view(self):
+        response = self.client.get("/database")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Saved marker records", response.data)
+        self.assertIn(b"Camera image position", response.data)
+
+    def test_warehouse_detection_is_saved_and_exposed_by_marker_records_api(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = MarkerHistoryStore(Path(directory) / "history.sqlite3")
+            test_warehouse = WarehouseService()
+            detections = [
+                {
+                    "marker_id": 40,
+                    "center_x": 120,
+                    "center_y": 80,
+                    "side_pixels": 47.5,
+                }
+            ]
+            with (
+                patch("app.marker_history", store),
+                patch("app.warehouse", test_warehouse),
+                patch("app.camera.detections", return_value=detections),
+                patch("app.state_store.save"),
+            ):
+                self.client.get("/api/warehouse")
+                records = self.client.get("/api/marker-records")
+                self.client.get("/api/warehouse")
+                repeated = self.client.get("/api/marker-records")
+
+        self.assertEqual(records.status_code, 200)
+        self.assertEqual(records.json["total"], 1)
+        self.assertEqual(records.json["records"][0]["marker_id"], 40)
+        self.assertEqual(records.json["records"][0]["zone_name"], "Zone B")
+        self.assertEqual(records.json["records"][0]["center_x"], 120)
+        self.assertEqual(repeated.json["total"], 1)
+
+    def test_marker_records_api_reports_missing_production_database(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = MarkerHistoryStore(
+                Path(directory) / "unused.sqlite3",
+                require_database_url=True,
+            )
+            with patch("app.marker_history", store):
+                response = self.client.get("/api/marker-records")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("DATABASE_URL", response.json["error"])
+
+    def test_marker_records_api_validates_limit(self):
+        invalid = self.client.get("/api/marker-records?limit=invalid")
+
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("integer", invalid.json["error"])
 
     def test_cloud_camera_page_offers_camera_and_real_marker_routing_guidance(self):
         with (
@@ -120,9 +176,11 @@ class AppRouteTests(unittest.TestCase):
         warehouse.reset()
         with tempfile.TemporaryDirectory() as directory:
             store = AppStateStore(Path(directory) / "state.sqlite3")
+            history = MarkerHistoryStore(Path(directory) / "history.sqlite3")
             with (
                 patch("app.camera.detections", return_value=[{"marker_id": 20}]),
                 patch("app.state_store", store),
+                patch("app.marker_history", history),
             ):
                 response = self.client.get("/api/warehouse")
             restored_warehouse = WarehouseService()
@@ -194,39 +252,74 @@ class AppRouteTests(unittest.TestCase):
         dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
         expected_zones = {7: "Zone A", 40: "Zone B", 70: "Zone C"}
 
-        for marker_id, expected_zone in expected_zones.items():
-            with self.subTest(marker_id=marker_id):
-                marker = cv2.aruco.generateImageMarker(
-                    dictionary,
-                    marker_id,
-                    240,
-                    borderBits=1,
-                )
-                frame = np.full((400, 400, 3), 255, dtype=np.uint8)
-                frame[80:320, 80:320] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
-                encoded, jpeg = cv2.imencode(".jpg", frame)
-                self.assertTrue(encoded)
-                detected_warehouse = WarehouseService()
-
-                with (
-                    patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
-                    patch("app.warehouse", detected_warehouse),
-                    patch("app.state_store.save"),
-                ):
-                    response = self.client.post(
-                        "/api/camera/frame",
-                        data=jpeg.tobytes(),
-                        content_type="image/jpeg",
+        with tempfile.TemporaryDirectory() as directory:
+            history = MarkerHistoryStore(Path(directory) / "history.sqlite3")
+            for marker_id, expected_zone in expected_zones.items():
+                with self.subTest(marker_id=marker_id):
+                    marker = cv2.aruco.generateImageMarker(
+                        dictionary,
+                        marker_id,
+                        240,
+                        borderBits=1,
                     )
+                    frame = np.full((400, 400, 3), 255, dtype=np.uint8)
+                    frame[80:320, 80:320] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
+                    encoded, jpeg = cv2.imencode(".jpg", frame)
+                    self.assertTrue(encoded)
+                    detected_warehouse = WarehouseService()
 
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(
-                    [detection["marker_id"] for detection in response.json["detections"]],
-                    [marker_id],
+                    with (
+                        patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
+                        patch("app.warehouse", detected_warehouse),
+                        patch("app.state_store.save"),
+                        patch("app.marker_history", history),
+                    ):
+                        response = self.client.post(
+                            "/api/camera/frame",
+                            data=jpeg.tobytes(),
+                            content_type="image/jpeg",
+                        )
+
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(
+                        [detection["marker_id"] for detection in response.json["detections"]],
+                        [marker_id],
+                    )
+                    robot = response.json["warehouse"]["robots"][0]
+                    self.assertEqual(robot["marker_id"], marker_id)
+                    self.assertEqual(robot["zone_name"], expected_zone)
+
+            self.assertEqual(history.list_records()["total"], 3)
+
+    def test_browser_camera_delivery_continues_when_history_database_is_unavailable(self):
+        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_100)
+        marker = cv2.aruco.generateImageMarker(dictionary, 7, 240, borderBits=1)
+        frame = np.full((400, 400, 3), 255, dtype=np.uint8)
+        frame[80:320, 80:320] = cv2.cvtColor(marker, cv2.COLOR_GRAY2BGR)
+        encoded, jpeg = cv2.imencode(".jpg", frame)
+        self.assertTrue(encoded)
+
+        with tempfile.TemporaryDirectory() as directory:
+            unavailable_history = MarkerHistoryStore(
+                Path(directory) / "unused.sqlite3",
+                require_database_url=True,
+            )
+            with (
+                patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}),
+                patch("app.warehouse", WarehouseService()),
+                patch("app.state_store.save"),
+                patch("app.marker_history", unavailable_history),
+            ):
+                response = self.client.post(
+                    "/api/camera/frame",
+                    data=jpeg.tobytes(),
+                    content_type="image/jpeg",
                 )
-                robot = response.json["warehouse"]["robots"][0]
-                self.assertEqual(robot["marker_id"], marker_id)
-                self.assertEqual(robot["zone_name"], expected_zone)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json["marker_history_saved"])
+        self.assertIn("DATABASE_URL", response.json["marker_history_warning"])
+        self.assertEqual(response.json["warehouse"]["robots"][0]["marker_id"], 7)
 
     def test_browser_camera_frame_rejects_non_jpeg_and_invalid_images(self):
         with patch.dict(app.config, {"BROWSER_CAMERA_ENABLED": True}):
@@ -240,9 +333,16 @@ class AppRouteTests(unittest.TestCase):
                 data=b"not an image",
                 content_type="image/jpeg",
             )
+            invalid_run_id = self.client.post(
+                "/api/camera/frame",
+                data=b"",
+                content_type="image/jpeg",
+                headers={"X-Run-ID": "not-a-uuid"},
+            )
 
         self.assertEqual(wrong_type.status_code, 415)
         self.assertEqual(invalid_image.status_code, 400)
+        self.assertEqual(invalid_run_id.status_code, 400)
 
     def test_simulated_scan_endpoint_is_removed(self):
         response = self.client.post("/api/demo/scan", json={"marker_id": 70})

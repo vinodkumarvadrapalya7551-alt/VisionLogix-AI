@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+from uuid import UUID, uuid4
 from pathlib import Path
 
 import cv2
@@ -11,6 +12,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_from_
 from pathfinding import DEFAULT_OBSTACLES
 from visionlogix.camera import CameraService
 from visionlogix.detector import create_marker_png
+from visionlogix.marker_history import MarkerHistoryStore, MarkerHistoryUnavailable
 from visionlogix.state_store import AppStateStore
 from warehouse import WarehouseService
 
@@ -22,31 +24,53 @@ app.config["BROWSER_CAMERA_ENABLED"] = os.environ.get("VERCEL") == "1"
 camera = CameraService(camera_index=int(os.environ.get("CAMERA_INDEX", "1")))
 detector_lock = threading.Lock()
 warehouse = WarehouseService()
+current_run_id = uuid4().hex
 state_path = (
     Path("/tmp/visionlogix.sqlite3")
     if os.environ.get("VERCEL") == "1"
     else Path(app.instance_path) / "visionlogix.sqlite3"
 )
 state_store = AppStateStore(state_path)
+marker_history = MarkerHistoryStore(
+    state_path,
+    database_url=os.environ.get("DATABASE_URL"),
+    require_database_url=os.environ.get("VERCEL") == "1",
+)
 saved_warehouse = state_store.load("warehouse")
 if saved_warehouse is not None:
     warehouse.restore(saved_warehouse)
 
 
+def request_run_id() -> str | None:
+    raw_run_id = request.headers.get("X-Run-ID", current_run_id)
+    try:
+        return UUID(raw_run_id).hex
+    except (AttributeError, ValueError):
+        return None
+
+
 @app.get("/")
 def index() -> str:
+    global current_run_id
     camera.stop()
     warehouse.reset()
     state_store.clear("detections")
     state_store.clear("warehouse")
+    current_run_id = uuid4().hex
     return render_template(
         "index.html",
         camera_enabled=app.config["CAMERA_ENABLED"],
         browser_camera=app.config["BROWSER_CAMERA_ENABLED"],
+        run_id=current_run_id,
         camera_available=(
             app.config["CAMERA_ENABLED"] or app.config["BROWSER_CAMERA_ENABLED"]
         ),
     )
+
+
+@app.get("/database")
+def marker_database() -> str:
+    return render_template("database.html")
 
 
 @app.get("/favicon.ico")
@@ -87,14 +111,45 @@ def detections():
 
 @app.get("/api/warehouse")
 def warehouse_status():
-    warehouse.observe_detections(camera.detections())
+    current_detections = camera.detections()
+    warehouse.observe_detections(current_detections)
     state = warehouse.snapshot()
     state_store.save("warehouse", state)
+    try:
+        marker_history.sync_warehouse(state, current_detections, current_run_id)
+    except MarkerHistoryUnavailable as exc:
+        state["marker_history_saved"] = False
+        state["marker_history_warning"] = str(exc)
+    else:
+        state["marker_history_saved"] = True
     return jsonify(state)
+
+
+@app.get("/api/marker-records")
+def marker_records():
+    raw_limit = request.args.get("limit", "100")
+    try:
+        limit = int(raw_limit)
+    except ValueError:
+        return jsonify({"error": "limit must be an integer."}), 400
+    if limit < 1 or limit > 500:
+        return jsonify({"error": "limit must be between 1 and 500."}), 400
+
+    try:
+        result = marker_history.list_records(limit)
+        result["persistence"] = (
+            "persistent" if marker_history.database_url else "local"
+        )
+        return jsonify(result)
+    except MarkerHistoryUnavailable as exc:
+        return jsonify({"error": str(exc)}), 503
 
 
 @app.get("/api/metrics")
 def performance_metrics():
+    run_id = request_run_id()
+    if run_id is None:
+        return jsonify({"error": "X-Run-ID must be a valid UUID."}), 400
     return jsonify(warehouse.metrics_snapshot())
 
 
@@ -169,6 +224,9 @@ def process_camera_frame():
         return jsonify({"error": "Browser camera uploads are not enabled."}), 404
     if request.mimetype != "image/jpeg":
         return jsonify({"error": "Camera frames must be sent as JPEG images."}), 415
+    run_id = request_run_id()
+    if run_id is None:
+        return jsonify({"error": "X-Run-ID must be a valid UUID."}), 400
 
     image_bytes = request.get_data(cache=False)
     if not image_bytes:
@@ -184,11 +242,20 @@ def process_camera_frame():
     warehouse.observe_detections(detection_data)
     state = warehouse.snapshot()
     state_store.save("warehouse", state)
+    try:
+        marker_history.sync_warehouse(state, detection_data, run_id)
+    except MarkerHistoryUnavailable as exc:
+        history_saved = False
+        history_warning = str(exc)
+    else:
+        history_saved = True
     return jsonify({
         "detections": detection_data,
         "frame_width": int(frame.shape[1]),
         "frame_height": int(frame.shape[0]),
         "warehouse": state,
+        "marker_history_saved": history_saved,
+        "marker_history_warning": history_warning if not history_saved else None,
     })
 
 

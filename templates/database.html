@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0b1112">
+    <meta name="description" content="Saved VisionLogix marker detections and delivery records.">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <title>VisionLogix | Marker Database</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="VisionLogix home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 28 28" fill="none"><path d="M6 6.5h5.1l3.1 10.2 3.2-10.2h4.6l-5.4 15h-5.1L6 6.5Z" fill="currentColor"/><circle cx="21.5" cy="20.5" r="2.5" fill="#B9F56B"/></svg>
+          </span>
+          <span>VISION<span class="brand-light">LOGIX</span></span>
+        </a>
+        <nav class="topbar-nav" aria-label="Main navigation">
+          <a class="nav-link" href="/">Overview</a>
+          <a class="nav-link nav-link-active" href="/database" aria-current="page">Database</a>
+        </nav>
+        <a class="button button-secondary database-back-link" href="/">Back to warehouse</a>
+      </header>
+
+      <section class="intro">
+        <div>
+          <p class="eyebrow"><span class="eyebrow-line"></span> PERSISTENT RECORDS <span class="eyebrow-divider">/</span> DATABASE</p>
+          <h1>Marker history,<br><span>kept in one place.</span></h1>
+          <p class="intro-copy">Each new delivery assignment is saved once with its marker ID, detected image position, destination, and delivery status. Repeated camera frames update the existing record instead of adding duplicates.</p>
+        </div>
+      </section>
+
+      <section class="panel marker-history-panel" aria-labelledby="history-title">
+        <div class="panel-heading">
+          <div class="heading-group">
+            <span class="panel-icon detection-panel-icon" aria-hidden="true">⌗</span>
+            <span><span id="history-title" class="panel-title">Saved marker records</span><small class="panel-subtitle">Newest deliveries first</small></span>
+          </div>
+          <div class="database-actions">
+            <span id="records-count" class="subtle-label">LOADING RECORDS</span>
+            <button id="refresh-records" class="button button-secondary" type="button">Refresh</button>
+          </div>
+        </div>
+        <p id="records-message" class="database-message" role="status" aria-live="polite">Loading saved marker records…</p>
+        <div class="database-table-wrap">
+          <table class="database-table">
+            <thead>
+              <tr>
+                <th scope="col">Marker ID</th>
+                <th scope="col">Destination</th>
+                <th scope="col">Camera image position</th>
+                <th scope="col">Status</th>
+                <th scope="col">Captured</th>
+                <th scope="col">Completed</th>
+              </tr>
+            </thead>
+            <tbody id="records-body">
+              <tr><td colspan="6" class="database-empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="database-note">Camera coordinates are image pixels, not calibrated warehouse coordinates. Local mode uses SQLite. Vercel requires a configured Neon <code>DATABASE_URL</code> for records to persist across requests and deployments.</p>
+      </section>
+
+      <footer class="page-footer">
+        <span>VISIONLOGIX <span class="footer-muted">· MARKER DELIVERY RECORDS</span></span>
+        <a href="/">Return to the warehouse dashboard</a>
+      </footer>
+    </main>
+    <script src="{{ url_for('static', filename='database.js') }}" defer></script>
+  </body>
+</html>

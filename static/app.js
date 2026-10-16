@@ -16,6 +16,7 @@ let startPending = false;
 const browserCameraEnabled = startButton.dataset.cameraMode === "browser";
 let browserCameraStream = null;
 const frameCanvas = document.createElement("canvas");
+const runId = document.body.dataset.runId;
 
 function setCameraState(running, message, starting = false) {
   const wasRunning = cameraState.dataset.state === "on";
@@ -308,7 +309,10 @@ function renderPerformanceMetrics(metrics) {
 
 async function refreshPerformanceMetrics() {
   try {
-    const response = await fetch("/api/metrics", { cache: "no-store" });
+    const response = await fetch("/api/metrics", {
+      cache: "no-store",
+      headers: { "X-Run-ID": runId },
+    });
     if (!response.ok) throw new Error("Performance metrics are unavailable.");
     renderPerformanceMetrics(await response.json());
   } catch {
@@ -450,7 +454,10 @@ async function processBrowserCameraFrames(stream) {
         });
         const response = await fetch("/api/camera/frame", {
           method: "POST",
-          headers: { "Content-Type": "image/jpeg" },
+          headers: {
+            "Content-Type": "image/jpeg",
+            "X-Run-ID": runId,
+          },
           body: blob,
         });
         const result = await response.json();
@@ -463,6 +470,9 @@ async function processBrowserCameraFrames(stream) {
           result.frame_height,
         );
         renderWarehouseState(result.warehouse);
+        cameraMessage.textContent = result.marker_history_warning
+          ? `Marker detected and delivery assigned, but history was not saved: ${result.marker_history_warning}`
+          : "Camera connected. Scanning for ArUco markers.";
         document.querySelector("#frame-size").textContent =
           `${result.frame_width} × ${result.frame_height}`;
         const now = performance.now();

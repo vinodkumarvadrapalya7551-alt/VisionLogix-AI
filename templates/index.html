@@ -9,7 +9,7 @@
     <title>VisionLogix | Warehouse Control</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
-  <body>
+  <body data-run-id="{{ run_id }}">
     <main class="app-shell">
       <header class="topbar">
         <a class="brand" href="/" aria-label="VisionLogix home">
@@ -23,6 +23,7 @@
           <a class="nav-link" href="#camera-workspace">Vision</a>
           <a class="nav-link" href="#warehouse">Warehouse</a>
           <a class="nav-link" href="#performance">Performance</a>
+          <a class="nav-link" href="/database">Database</a>
         </nav>
         <div class="topbar-meta">
           <div class="stage-label"><span class="stage-dot"></span> STAGE 02 <span class="stage-divider">/</span> {{ "CLOUD CAMERA" if browser_camera else "LOCAL OPERATIONS" }}</div>
@@ -74,7 +75,7 @@
               <div class="heading-group"><span class="panel-icon control-panel-icon" aria-hidden="true">↗</span><span><span class="panel-title">Camera control</span><small class="panel-subtitle">{{ "Browser permission required" if browser_camera else "Private · this device only" }}</small></span></div>
               <span class="panel-index">01</span>
             </div>
-            <p class="panel-copy">{{ "Allow camera access when prompted. Camera frames are sent securely to VisionLogix for marker detection and are not stored." if browser_camera else "Connect a camera to scan for robot markers. Video stays on this device." }}</p>
+            <p class="panel-copy">{{ "Allow camera access when prompted. Frames are processed in memory and not saved. Detected marker IDs, image positions, destination zones, and delivery status are saved in the marker database." if browser_camera else "Connect a camera to scan for robot markers. Video stays on this device; detected marker and delivery details are saved in the database." }}</p>
             <div class="button-row">
               <button id="start-button" class="button button-primary" type="button" data-camera-mode="{{ 'browser' if browser_camera else 'server' }}"><span>Connect camera</span><span aria-hidden="true">↗</span></button>
               <button id="stop-button" class="button button-secondary" type="button" disabled>Stop</button>
