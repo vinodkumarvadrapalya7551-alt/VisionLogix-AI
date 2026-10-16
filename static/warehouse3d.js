@@ -13,6 +13,180 @@ let gridSize = { width: 24, height: 16 };
 let routeGroup;
 let warehouseFloorInitialized = false;
 let movementStepSeconds = 0.12;
+let fallbackCanvas;
+let fallbackContext;
+let fallbackResizeObserver;
+
+function drawWarehouseFallback(state) {
+  if (!fallbackContext || !fallbackCanvas) return;
+
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.max(1, container.clientWidth);
+  const height = Math.max(1, container.clientHeight);
+  fallbackCanvas.width = Math.round(width * pixelRatio);
+  fallbackCanvas.height = Math.round(height * pixelRatio);
+  fallbackContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+  const context = fallbackContext;
+  const grid = state.grid;
+  const cellSize = Math.max(
+    1,
+    Math.min((width - 48) / grid.width, (height - 72) / grid.height),
+  );
+  const left = (width - cellSize * grid.width) / 2;
+  const top = (height - cellSize * grid.height) / 2;
+  const cellCenter = ([x, z]) => [
+    left + (x + 0.5) * cellSize,
+    top + (z + 0.5) * cellSize,
+  ];
+
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#0d151b";
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = "#19242b";
+  context.fillRect(left, top, cellSize * grid.width, cellSize * grid.height);
+
+  context.strokeStyle = "rgba(132, 157, 151, 0.2)";
+  context.lineWidth = 1;
+  for (let x = 0; x <= grid.width; x += 1) {
+    const lineX = left + x * cellSize;
+    context.beginPath();
+    context.moveTo(lineX, top);
+    context.lineTo(lineX, top + cellSize * grid.height);
+    context.stroke();
+  }
+  for (let z = 0; z <= grid.height; z += 1) {
+    const lineY = top + z * cellSize;
+    context.beginPath();
+    context.moveTo(left, lineY);
+    context.lineTo(left + cellSize * grid.width, lineY);
+    context.stroke();
+  }
+
+  for (const [x, z] of state.static_obstacles ?? grid.obstacles) {
+    context.fillStyle = "#65737a";
+    context.fillRect(
+      left + x * cellSize + 1,
+      top + z * cellSize + 1,
+      Math.max(1, cellSize - 2),
+      Math.max(1, cellSize - 2),
+    );
+  }
+  for (const [x, z] of state.dynamic_obstacles ?? []) {
+    context.fillStyle = "#c85b4b";
+    context.fillRect(
+      left + x * cellSize + 1,
+      top + z * cellSize + 1,
+      Math.max(1, cellSize - 2),
+      Math.max(1, cellSize - 2),
+    );
+  }
+
+  for (const zone of state.zones ?? []) {
+    const [x, y] = cellCenter(zone.target);
+    context.fillStyle = zone.color;
+    context.globalAlpha = 0.42;
+    context.fillRect(
+      x - cellSize * 0.42,
+      y - cellSize * 0.42,
+      cellSize * 0.84,
+      cellSize * 0.84,
+    );
+    context.globalAlpha = 1;
+    context.fillStyle = "#e8f0e8";
+    context.font = `600 ${Math.max(9, Math.min(12, cellSize * 0.55))}px Segoe UI, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(zone.name, x, y);
+  }
+
+  for (const robot of state.robots ?? []) {
+    const route = robot.route ?? [];
+    if (route.length > 1 && robot.status !== "delivered" && robot.status !== "blocked") {
+      context.beginPath();
+      route.forEach((point, index) => {
+        const [x, y] = cellCenter(point);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.strokeStyle = zoneColors[robot.zone_id] === 0x55b98a
+        ? "#55b98a"
+        : zoneColors[robot.zone_id] === 0x5d9bd1
+          ? "#5d9bd1"
+          : "#d65353";
+      context.globalAlpha = 0.5;
+      context.lineWidth = Math.max(1.5, cellSize * 0.11);
+      context.stroke();
+      context.globalAlpha = 1;
+    }
+
+    if (!robot.position || robot.status === "queued") continue;
+    let [x, y] = robot.position;
+    const index = robot.route_index ?? 0;
+    const next = route[index + 1];
+    if (robot.status === "moving" && next) {
+      const progress = Math.min(1, Math.max(0, robot.step_progress ?? 0));
+      x += (next[0] - x) * progress;
+      y += (next[1] - y) * progress;
+    }
+    const [centerX, centerY] = cellCenter([x, y]);
+    const color = robot.status === "blocked"
+      ? "#f08b7c"
+      : robot.status === "delivered"
+        ? "#5d9bd1"
+        : "#c5f477";
+    context.beginPath();
+    context.arc(centerX, centerY, Math.max(4, cellSize * 0.32), 0, Math.PI * 2);
+    context.fillStyle = color;
+    context.fill();
+    context.fillStyle = "#0b1112";
+    context.font = `bold ${Math.max(8, Math.min(11, cellSize * 0.42))}px Segoe UI, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(String(robot.marker_id), centerX, centerY);
+  }
+
+  context.fillStyle = "#9aa99f";
+  context.font = "10px Segoe UI, sans-serif";
+  context.textAlign = "left";
+  context.textBaseline = "bottom";
+  context.fillText("TOP-DOWN VIEW · 2D FALLBACK (WEBGL UNAVAILABLE)", 12, height - 10);
+}
+
+function startCanvasFallback(error) {
+  try {
+    fallbackCanvas = document.createElement("canvas");
+    fallbackCanvas.setAttribute(
+      "aria-label",
+      "Top-down warehouse map showing shelves, delivery zones, routes, and robots",
+    );
+    fallbackContext = fallbackCanvas.getContext("2d");
+    if (!fallbackContext) throw new Error("The browser could not create a 2D canvas context.");
+
+    container.replaceChildren(fallbackCanvas);
+    container.setAttribute("role", "img");
+    window.updateWarehouseScene = updateWarehouseScene;
+    window.warehouseRendererFallback = true;
+    const initialState = window.initialWarehouseState;
+    if (initialState) drawWarehouseFallback(initialState);
+
+    fallbackResizeObserver = new ResizeObserver(() => {
+      const state = window.initialWarehouseState;
+      if (state) drawWarehouseFallback(state);
+    });
+    fallbackResizeObserver.observe(container);
+    document.querySelector("#warehouse-message").textContent =
+      "TOP-DOWN 2D VIEW · WEBGL UNAVAILABLE";
+    console.warn("3D warehouse unavailable; using 2D canvas fallback.", error);
+  } catch (fallbackError) {
+    container.textContent =
+      `Warehouse visualization unavailable: ${fallbackError.message}`;
+    container.setAttribute("role", "alert");
+    document.querySelector("#warehouse-message").textContent =
+      "WAREHOUSE VISUALIZATION UNAVAILABLE";
+    console.error("Warehouse 2D fallback could not be initialized.", fallbackError);
+  }
+}
 
 function worldPosition([x, z], y = 0) {
   return new THREE.Vector3(
@@ -238,6 +412,10 @@ function updateRoute(robot, robotScene) {
 }
 
 function updateWarehouseScene(state) {
+  if (fallbackContext) {
+    drawWarehouseFallback(state);
+    return;
+  }
   if (!scene) return;
   movementStepSeconds = state.step_seconds ?? movementStepSeconds;
   updateDynamicObstacles(state);
@@ -392,10 +570,7 @@ function startScene() {
     if (warehouse) updateWarehouseScene(warehouse);
     animate();
   } catch (error) {
-    container.textContent = `3D warehouse could not be initialized: ${error.message}`;
-    container.setAttribute("role", "alert");
-    document.querySelector("#warehouse-message").textContent =
-      "3D RENDERER ERROR · CHECK WEBGL SUPPORT";
+    startCanvasFallback(error);
   }
 }
 
@@ -405,9 +580,9 @@ async function loadWarehouse() {
     if (!response.ok) throw new Error("Warehouse API returned an error.");
     const state = await response.json();
     window.initialWarehouseState = state;
-    if (scene) {
+    if (scene || fallbackContext) {
       if (!warehouseFloorInitialized) {
-        addWarehouseFloor(state);
+        if (scene) addWarehouseFloor(state);
         warehouseFloorInitialized = true;
       }
       updateWarehouseScene(state);

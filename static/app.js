@@ -257,7 +257,9 @@ async function refreshWarehouse() {
 
 function renderWarehouseState(state) {
   document.querySelector("#warehouse-message").textContent =
-    state.message.toUpperCase();
+    window.warehouseRendererFallback
+      ? `2D TOP-DOWN VIEW · ${state.message.toUpperCase()}`
+      : state.message.toUpperCase();
   document.querySelector("#warehouse-total").textContent = String(state.summary.total);
   document.querySelector("#warehouse-moving").textContent = String(state.summary.moving);
   document.querySelector("#warehouse-queued").textContent = String(state.summary.queued);
