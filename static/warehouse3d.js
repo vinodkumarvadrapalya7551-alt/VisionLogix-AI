@@ -16,6 +16,8 @@ let movementStepSeconds = 0.12;
 let fallbackCanvas;
 let fallbackContext;
 let fallbackResizeObserver;
+let fallbackYaw = Math.PI / 4;
+let fallbackPointerX = null;
 
 function drawWarehouseFallback(state) {
   if (!fallbackContext || !fallbackCanvas) return;
@@ -29,75 +31,135 @@ function drawWarehouseFallback(state) {
 
   const context = fallbackContext;
   const grid = state.grid;
-  const cellSize = Math.max(
+  const cosYaw = Math.cos(fallbackYaw);
+  const sinYaw = Math.sin(fallbackYaw);
+  const maxElevation = 2.1;
+  const verticalScale = 0.52;
+  const corners = [
+    [0, 0],
+    [grid.width, 0],
+    [0, grid.height],
+    [grid.width, grid.height],
+  ].map(([x, z]) => [
+    cosYaw * x - sinYaw * z,
+    (sinYaw * x + cosYaw * z) * 0.52,
+  ]);
+  const minX = Math.min(...corners.map(([x]) => x));
+  const maxX = Math.max(...corners.map(([x]) => x));
+  const minY = Math.min(...corners.map(([, y]) => y));
+  const maxY = Math.max(...corners.map(([, y]) => y));
+  const scale = Math.max(
     1,
-    Math.min((width - 48) / grid.width, (height - 72) / grid.height),
+    Math.min(
+      (width - 64) / (maxX - minX),
+      (height - 86) / (maxY - minY + maxElevation * verticalScale),
+    ),
   );
-  const left = (width - cellSize * grid.width) / 2;
-  const top = (height - cellSize * grid.height) / 2;
-  const cellCenter = ([x, z]) => [
-    left + (x + 0.5) * cellSize,
-    top + (z + 0.5) * cellSize,
+  const originX = (width - (maxX - minX) * scale) / 2;
+  const originY = (height - (maxY - minY + maxElevation * verticalScale) * scale) / 2;
+  const project = (x, z, elevation = 0) => [
+    originX + (cosYaw * x - sinYaw * z - minX) * scale,
+    originY +
+      ((sinYaw * x + cosYaw * z) * 0.52 - minY + maxElevation * verticalScale) * scale -
+      elevation * verticalScale * scale,
   ];
+  const drawPolygon = (points, fill, stroke = null) => {
+    context.beginPath();
+    points.forEach(([x, z, elevation = 0], index) => {
+      const [screenX, screenY] = project(x, z, elevation);
+      if (index === 0) context.moveTo(screenX, screenY);
+      else context.lineTo(screenX, screenY);
+    });
+    context.closePath();
+    context.fillStyle = fill;
+    context.fill();
+    if (stroke) {
+      context.strokeStyle = stroke;
+      context.lineWidth = 1;
+      context.stroke();
+    }
+  };
+  const cellCenter = ([x, z], elevation = 0) =>
+    project(x + 0.5, z + 0.5, elevation);
+  const drawBox = (x, z, boxHeight, top, xFace, zFace, inset = 0) => {
+    const startX = x + inset;
+    const startZ = z + inset;
+    const endX = x + 1 - inset;
+    const endZ = z + 1 - inset;
+    const edge = "rgba(7, 13, 16, 0.7)";
+    drawPolygon(
+      [
+        [endX, startZ],
+        [endX, endZ],
+        [endX, endZ, boxHeight],
+        [endX, startZ, boxHeight],
+      ],
+      xFace,
+      edge,
+    );
+    drawPolygon(
+      [
+        [startX, endZ],
+        [endX, endZ],
+        [endX, endZ, boxHeight],
+        [startX, endZ, boxHeight],
+      ],
+      zFace,
+      edge,
+    );
+    drawPolygon(
+      [
+        [startX, startZ, boxHeight],
+        [endX, startZ, boxHeight],
+        [endX, endZ, boxHeight],
+        [startX, endZ, boxHeight],
+      ],
+      top,
+      edge,
+    );
+  };
 
   context.clearRect(0, 0, width, height);
   context.fillStyle = "#0d151b";
   context.fillRect(0, 0, width, height);
-  context.fillStyle = "#19242b";
-  context.fillRect(left, top, cellSize * grid.width, cellSize * grid.height);
+  drawPolygon(
+    [[0, 0], [grid.width, 0], [grid.width, grid.height], [0, grid.height]],
+    "#19242b",
+    "#52636a",
+  );
 
   context.strokeStyle = "rgba(132, 157, 151, 0.2)";
   context.lineWidth = 1;
   for (let x = 0; x <= grid.width; x += 1) {
-    const lineX = left + x * cellSize;
+    const [startX, startY] = project(x, 0);
+    const [endX, endY] = project(x, grid.height);
     context.beginPath();
-    context.moveTo(lineX, top);
-    context.lineTo(lineX, top + cellSize * grid.height);
+    context.moveTo(startX, startY);
+    context.lineTo(endX, endY);
     context.stroke();
   }
   for (let z = 0; z <= grid.height; z += 1) {
-    const lineY = top + z * cellSize;
+    const [startX, startY] = project(0, z);
+    const [endX, endY] = project(grid.width, z);
     context.beginPath();
-    context.moveTo(left, lineY);
-    context.lineTo(left + cellSize * grid.width, lineY);
+    context.moveTo(startX, startY);
+    context.lineTo(endX, endY);
     context.stroke();
   }
 
-  for (const [x, z] of state.static_obstacles ?? grid.obstacles) {
-    context.fillStyle = "#65737a";
-    context.fillRect(
-      left + x * cellSize + 1,
-      top + z * cellSize + 1,
-      Math.max(1, cellSize - 2),
-      Math.max(1, cellSize - 2),
-    );
-  }
-  for (const [x, z] of state.dynamic_obstacles ?? []) {
-    context.fillStyle = "#c85b4b";
-    context.fillRect(
-      left + x * cellSize + 1,
-      top + z * cellSize + 1,
-      Math.max(1, cellSize - 2),
-      Math.max(1, cellSize - 2),
-    );
-  }
-
   for (const zone of state.zones ?? []) {
-    const [x, y] = cellCenter(zone.target);
-    context.fillStyle = zone.color;
-    context.globalAlpha = 0.42;
-    context.fillRect(
-      x - cellSize * 0.42,
-      y - cellSize * 0.42,
-      cellSize * 0.84,
-      cellSize * 0.84,
+    const [x, z] = zone.target;
+    drawPolygon(
+      [[x, z], [x + 1, z], [x + 1, z + 1], [x, z + 1]],
+      `${zone.color}78`,
+      zone.color,
     );
-    context.globalAlpha = 1;
+    const [labelX, labelY] = cellCenter(zone.target, 0.06);
     context.fillStyle = "#e8f0e8";
-    context.font = `600 ${Math.max(9, Math.min(12, cellSize * 0.55))}px Segoe UI, sans-serif`;
+    context.font = `600 ${Math.max(9, Math.min(12, scale * 0.28))}px Segoe UI, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(zone.name, x, y);
+    context.fillText(zone.name, labelX, labelY);
   }
 
   for (const robot of state.robots ?? []) {
@@ -105,52 +167,82 @@ function drawWarehouseFallback(state) {
     if (route.length > 1 && robot.status !== "delivered" && robot.status !== "blocked") {
       context.beginPath();
       route.forEach((point, index) => {
-        const [x, y] = cellCenter(point);
+        const [x, y] = cellCenter(point, 0.035);
         if (index === 0) context.moveTo(x, y);
         else context.lineTo(x, y);
       });
-      context.strokeStyle = zoneColors[robot.zone_id] === 0x55b98a
-        ? "#55b98a"
-        : zoneColors[robot.zone_id] === 0x5d9bd1
-          ? "#5d9bd1"
-          : "#d65353";
+      context.strokeStyle =
+        `#${(zoneColors[robot.zone_id] ?? 0xffffff).toString(16).padStart(6, "0")}`;
       context.globalAlpha = 0.5;
-      context.lineWidth = Math.max(1.5, cellSize * 0.11);
+      context.lineWidth = Math.max(1.5, scale * 0.08);
       context.stroke();
       context.globalAlpha = 1;
     }
+  }
 
-    if (!robot.position || robot.status === "queued") continue;
-    let [x, y] = robot.position;
-    const index = robot.route_index ?? 0;
-    const next = route[index + 1];
+  const obstacles = [
+    ...(state.static_obstacles ?? grid.obstacles).map(([x, z]) => [x, z, false]),
+    ...(state.dynamic_obstacles ?? []).map(([x, z]) => [x, z, true]),
+  ].sort((first, second) => {
+    const firstDepth = (first[0] + first[1]) * sinYaw;
+    const secondDepth = (second[0] + second[1]) * sinYaw;
+    return firstDepth - secondDepth;
+  });
+  for (const [x, z, dynamic] of obstacles) {
+    drawBox(
+      x,
+      z,
+      dynamic ? 0.78 : 1.5,
+      dynamic ? "#f07b69" : "#9aa9ad",
+      dynamic ? "#873c34" : "#3f4e57",
+      dynamic ? "#b54f43" : "#56646b",
+      0.06,
+    );
+  }
+
+  const robots = [...(state.robots ?? [])]
+    .filter((robot) => robot.position && robot.status !== "queued")
+    .sort(
+      (first, second) =>
+        (first.position[0] + first.position[1] -
+          second.position[0] - second.position[1]) * sinYaw,
+    );
+  for (const robot of robots) {
+    const route = robot.route ?? [];
+    let [x, z] = robot.position;
+    const next = route[(robot.route_index ?? 0) + 1];
     if (robot.status === "moving" && next) {
       const progress = Math.min(1, Math.max(0, robot.step_progress ?? 0));
       x += (next[0] - x) * progress;
-      y += (next[1] - y) * progress;
+      z += (next[1] - z) * progress;
     }
-    const [centerX, centerY] = cellCenter([x, y]);
     const color = robot.status === "blocked"
       ? "#f08b7c"
       : robot.status === "delivered"
         ? "#5d9bd1"
         : "#c5f477";
-    context.beginPath();
-    context.arc(centerX, centerY, Math.max(4, cellSize * 0.32), 0, Math.PI * 2);
-    context.fillStyle = color;
-    context.fill();
-    context.fillStyle = "#0b1112";
-    context.font = `bold ${Math.max(8, Math.min(11, cellSize * 0.42))}px Segoe UI, sans-serif`;
+    drawBox(
+      x + 0.16,
+      z + 0.16,
+      0.4,
+      color,
+      "#35443d",
+      "#71823e",
+      0,
+    );
+    const [labelX, labelY] = cellCenter([x, z], 0.68);
+    context.fillStyle = "#edf1eb";
+    context.font = `bold ${Math.max(8, Math.min(11, scale * 0.25))}px Segoe UI, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(String(robot.marker_id), centerX, centerY);
+    context.fillText(`ID ${robot.marker_id}`, labelX, labelY);
   }
 
   context.fillStyle = "#9aa99f";
   context.font = "10px Segoe UI, sans-serif";
   context.textAlign = "left";
   context.textBaseline = "bottom";
-  context.fillText("TOP-DOWN VIEW · 2D FALLBACK (WEBGL UNAVAILABLE)", 12, height - 10);
+  context.fillText("DRAG TO ORBIT · ISOMETRIC 3D VIEW (WEBGL-FREE)", 12, height - 10);
 }
 
 function startCanvasFallback(error) {
@@ -158,13 +250,14 @@ function startCanvasFallback(error) {
     fallbackCanvas = document.createElement("canvas");
     fallbackCanvas.setAttribute(
       "aria-label",
-      "Top-down warehouse map showing shelves, delivery zones, routes, and robots",
+      "Orbitable isometric warehouse view showing elevated shelves, delivery zones, routes, and robots",
     );
+    fallbackCanvas.style.touchAction = "none";
     fallbackContext = fallbackCanvas.getContext("2d");
     if (!fallbackContext) throw new Error("The browser could not create a 2D canvas context.");
 
     container.replaceChildren(fallbackCanvas);
-    container.setAttribute("role", "img");
+    container.setAttribute("role", "application");
     window.updateWarehouseScene = updateWarehouseScene;
     window.warehouseRendererFallback = true;
     const initialState = window.initialWarehouseState;
@@ -176,8 +269,24 @@ function startCanvasFallback(error) {
     });
     fallbackResizeObserver.observe(container);
     document.querySelector("#warehouse-message").textContent =
-      "TOP-DOWN 2D VIEW · WEBGL UNAVAILABLE";
-    console.warn("3D warehouse unavailable; using 2D canvas fallback.", error);
+      "ISOMETRIC 3D VIEW · WEBGL UNAVAILABLE";
+    fallbackCanvas.addEventListener("pointerdown", (event) => {
+      fallbackPointerX = event.clientX;
+      fallbackCanvas.setPointerCapture(event.pointerId);
+    });
+    fallbackCanvas.addEventListener("pointermove", (event) => {
+      if (fallbackPointerX === null) return;
+      fallbackYaw += (event.clientX - fallbackPointerX) * 0.008;
+      fallbackPointerX = event.clientX;
+      const currentState = window.initialWarehouseState;
+      if (currentState) drawWarehouseFallback(currentState);
+    });
+    const stopOrbit = () => {
+      fallbackPointerX = null;
+    };
+    fallbackCanvas.addEventListener("pointerup", stopOrbit);
+    fallbackCanvas.addEventListener("pointercancel", stopOrbit);
+    console.warn("WebGL unavailable; using orbitable isometric warehouse rendering.", error);
   } catch (fallbackError) {
     container.textContent =
       `Warehouse visualization unavailable: ${fallbackError.message}`;

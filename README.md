@@ -81,9 +81,9 @@ robot and is removed from the robot when it reaches its destination. Drag the
 3D view to orbit and use the mouse wheel to zoom.
 
 If the browser or device cannot create a WebGL context, the warehouse panel
-automatically switches to a top-down 2D canvas view with shelves, zones,
-routes, and robot positions. The detection, delivery, and status workflows
-continue to work in this fallback mode.
+automatically switches to an orbitable isometric canvas view. Shelves have
+visible height, and zones, routes, and robot positions are drawn in perspective.
+The detection, delivery, and status workflows continue to work in this mode.
 
 This is a virtual warehouse simulation; it does not issue commands to physical
 robots or track real packages. Camera coordinates are image pixels and are not
