@@ -2,6 +2,7 @@ const recordsBody = document.querySelector("#records-body");
 const recordsMessage = document.querySelector("#records-message");
 const recordsCount = document.querySelector("#records-count");
 const refreshButton = document.querySelector("#refresh-records");
+const markerIdDocument = document.querySelector("#marker-id-document");
 
 function formatTimestamp(value) {
   if (!value) return "—";
@@ -68,6 +69,7 @@ async function refreshRecords() {
       throw new Error(result.error || "Could not load saved marker records.");
     }
     renderRecords(result.records, result.total);
+    await refreshMarkerIdDocument();
     if (result.persistence === "temporary") {
       recordsMessage.textContent =
         "This deployment is using temporary storage. Configure DATABASE_URL to retain marker history across requests.";
@@ -85,6 +87,19 @@ async function refreshRecords() {
     recordsBody.append(row);
   } finally {
     refreshButton.disabled = false;
+  }
+}
+
+async function refreshMarkerIdDocument() {
+  try {
+    const response = await fetch("/api/marker-ids.txt", { cache: "no-store" });
+    if (!response.ok) {
+      const result = await response.json();
+      throw new Error(result.error || "Could not load scanned marker IDs.");
+    }
+    markerIdDocument.textContent = await response.text();
+  } catch (error) {
+    markerIdDocument.textContent = `Scanned marker IDs could not be loaded: ${error.message}`;
   }
 }
 

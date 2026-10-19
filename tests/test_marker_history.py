@@ -125,6 +125,17 @@ class MarkerHistoryStoreTests(unittest.TestCase):
             {"first-run:7", "second-run:7"},
         )
 
+    def test_marker_id_document_deduplicates_frames_but_keeps_unmapped_scans(self):
+        detections = [{"marker_id": 99, "center_x": 20, "center_y": 30}]
+
+        self.store.sync_scanned_markers(detections, "first-run")
+        self.store.sync_scanned_markers(detections, "first-run")
+        self.store.sync_scanned_markers(detections, "second-run")
+
+        document = self.store.marker_id_document()
+        self.assertIn("Total scan records: 2", document)
+        self.assertEqual(document.count("99 | 20, 30 |"), 2)
+
     def test_records_survive_a_new_store_instance(self):
         state = {
             "robots": [

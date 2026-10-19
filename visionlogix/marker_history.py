@@ -120,6 +120,24 @@ class MarkerHistoryStore:
                     ON marker_records (detected_at)
                     """
                 )
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS marker_scans (
+                        record_id TEXT PRIMARY KEY,
+                        marker_id INTEGER NOT NULL,
+                        center_x INTEGER,
+                        center_y INTEGER,
+                        first_seen_at TEXT NOT NULL,
+                        last_seen_at TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS marker_scans_first_seen_at
+                    ON marker_scans (first_seen_at)
+                    """
+                )
             self._schema_ready = True
 
     def sync_warehouse(
@@ -212,6 +230,86 @@ class MarkerHistoryStore:
                     )
                     pending_cache[record_id] = synced
             self._synced_state.update(pending_cache)
+
+    def sync_scanned_markers(
+        self,
+        detections: list[dict[str, Any]],
+        run_id: str = "default",
+    ) -> None:
+        self._ensure_schema()
+        placeholder = "%s" if self.database_url else "?"
+        observed_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        with self._connection() as connection:
+            for detection in detections:
+                if not isinstance(detection, dict):
+                    continue
+                marker_id = detection.get("marker_id")
+                if (
+                    isinstance(marker_id, bool)
+                    or not isinstance(marker_id, int)
+                    or marker_id < 0
+                ):
+                    continue
+                center_x = detection.get("center_x")
+                center_y = detection.get("center_y")
+                if isinstance(center_x, bool) or not isinstance(center_x, int):
+                    center_x = None
+                if isinstance(center_y, bool) or not isinstance(center_y, int):
+                    center_y = None
+                connection.execute(
+                    f"""
+                    INSERT INTO marker_scans (
+                        record_id, marker_id, center_x, center_y,
+                        first_seen_at, last_seen_at
+                    )
+                    VALUES ({", ".join([placeholder] * 6)})
+                    ON CONFLICT(record_id) DO UPDATE SET
+                        center_x = excluded.center_x,
+                        center_y = excluded.center_y,
+                        last_seen_at = excluded.last_seen_at
+                    """,
+                    (
+                        f"{run_id}:{marker_id}",
+                        marker_id,
+                        center_x,
+                        center_y,
+                        observed_at,
+                        observed_at,
+                    ),
+                )
+
+    def marker_id_document(self) -> str:
+        self._ensure_schema()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                SELECT marker_id, center_x, center_y, first_seen_at, last_seen_at
+                FROM marker_scans
+                ORDER BY first_seen_at DESC, record_id DESC
+                """
+            )
+            scans = cursor.fetchall()
+
+        lines = [
+            "VisionLogix scanned ArUco marker IDs",
+            f"Total scan records: {len(scans)}",
+            "One entry represents one marker ID per dashboard run; repeated camera frames update the entry.",
+            "",
+        ]
+        if not scans:
+            lines.append("No marker IDs have been scanned yet.")
+        else:
+            lines.append("Marker ID | Image center (pixels) | First seen (UTC) | Last seen (UTC)")
+            for marker_id, center_x, center_y, first_seen_at, last_seen_at in scans:
+                center = (
+                    f"{center_x}, {center_y}"
+                    if center_x is not None and center_y is not None
+                    else "unavailable"
+                )
+                lines.append(
+                    f"{marker_id} | {center} | {first_seen_at} | {last_seen_at}"
+                )
+        return "\n".join(lines) + "\n"
 
     def list_records(self, limit: int = 100) -> dict[str, Any]:
         self._ensure_schema()

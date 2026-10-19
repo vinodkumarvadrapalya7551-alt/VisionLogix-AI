@@ -29,7 +29,7 @@
         <div>
           <p class="eyebrow"><span class="eyebrow-line"></span> PERSISTENT RECORDS <span class="eyebrow-divider">/</span> DATABASE</p>
           <h1>Marker history,<br><span>kept in one place.</span></h1>
-          <p class="intro-copy">Each new delivery assignment is saved once with its marker ID, detected image position, destination, and delivery status. Repeated camera frames update the existing record instead of adding duplicates.</p>
+          <p class="intro-copy">Scanned marker IDs and delivery assignments are saved from the camera stream. Repeated camera frames update the same scan entry instead of adding duplicate lines.</p>
         </div>
       </section>
 
@@ -63,6 +63,18 @@
           </table>
         </div>
         <p class="database-note">Camera coordinates are image pixels, not calibrated warehouse coordinates. Local mode uses SQLite. Vercel requires a configured Neon <code>DATABASE_URL</code> for records to persist across requests and deployments.</p>
+      </section>
+
+      <section class="panel marker-id-document-panel" aria-labelledby="marker-id-document-title">
+        <div class="panel-heading">
+          <div class="heading-group">
+            <span class="panel-icon detection-panel-icon" aria-hidden="true">TXT</span>
+            <span><span id="marker-id-document-title" class="panel-title">Scanned marker IDs</span><small class="panel-subtitle">Text document generated from saved database scans</small></span>
+          </div>
+          <a class="button button-secondary" href="/api/marker-ids.txt">Download .txt</a>
+        </div>
+        <pre id="marker-id-document" class="marker-id-document" role="region" aria-label="Scanned marker ID text document">Loading scanned marker IDs…</pre>
+        <p class="database-note">Each marker ID is listed once per dashboard run; repeated camera frames update its last-seen time. IDs are included even if they do not map to a delivery zone.</p>
       </section>
 
       <footer class="page-footer">

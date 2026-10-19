@@ -125,8 +125,12 @@ be interpreted as real-world warehouse throughput or productivity.
 - `GET /api/marker-records?limit=100` — saved marker delivery history, newest
   first. The limit must be between 1 and 500. Each record includes marker ID,
   assigned zone, camera-image center, delivery status, and timestamps.
+- `GET /api/marker-ids.txt` — downloadable plain-text document generated from
+  saved camera scans, including detected IDs without a delivery-zone
+  assignment. Repeated camera frames update one entry per marker ID per
+  dashboard run.
 - `GET /database` — browser view of saved marker records; it refreshes every
-  five seconds and can also be refreshed manually.
+  five seconds and includes the live text document and its download link.
 - `POST /api/camera/start` and `POST /api/camera/stop` — control the local
   webcam.
 - `POST /api/camera/frame` — Vercel browser-camera JPEG detection endpoint;
@@ -188,6 +192,10 @@ the dashboard reports that the marker history was not saved, and `/database`
 shows the database configuration error. Local development uses SQLite unless
 `DATABASE_URL` is set. Never commit the connection string. After configuring
 the variable, redeploy the project.
+
+The text document is rendered from the database scan table on request; it is
+not a separate file on the server. This keeps the displayed and downloaded
+IDs synchronized with persisted scan records.
 
 The database view and records API currently have no authentication layer.
 Anyone who can access the deployed app can view its marker IDs, image-space

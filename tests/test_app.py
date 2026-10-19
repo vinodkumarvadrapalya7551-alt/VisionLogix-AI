@@ -43,6 +43,8 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Saved marker records", response.data)
         self.assertIn(b"Camera image position", response.data)
+        self.assertIn(b"Scanned marker IDs", response.data)
+        self.assertIn(b"Download .txt", response.data)
 
     def test_warehouse_detection_is_saved_and_exposed_by_marker_records_api(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -66,6 +68,7 @@ class AppRouteTests(unittest.TestCase):
                 records = self.client.get("/api/marker-records")
                 self.client.get("/api/warehouse")
                 repeated = self.client.get("/api/marker-records")
+                document = self.client.get("/api/marker-ids.txt")
 
         self.assertEqual(records.status_code, 200)
         self.assertEqual(records.json["total"], 1)
@@ -73,6 +76,28 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(records.json["records"][0]["zone_name"], "Zone B")
         self.assertEqual(records.json["records"][0]["center_x"], 120)
         self.assertEqual(repeated.json["total"], 1)
+        self.assertEqual(document.status_code, 200)
+        self.assertEqual(document.mimetype, "text/plain")
+        self.assertIn("40 | 120, 80 |", document.get_data(as_text=True))
+        self.assertIn("attachment;", document.headers["Content-Disposition"])
+
+    def test_marker_id_document_includes_detected_ids_without_delivery_assignments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = MarkerHistoryStore(Path(directory) / "history.sqlite3")
+            detection = [{"marker_id": 99, "center_x": 12, "center_y": 24}]
+            with (
+                patch("app.marker_history", store),
+                patch("app.warehouse", WarehouseService()),
+                patch("app.camera.detections", return_value=detection),
+                patch("app.state_store.save"),
+            ):
+                self.client.get("/api/warehouse")
+                response = self.client.get("/api/marker-ids.txt")
+                records = self.client.get("/api/marker-records")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("99 | 12, 24 |", response.get_data(as_text=True))
+        self.assertEqual(records.json["total"], 0)
 
     def test_marker_records_api_reports_missing_production_database(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -82,9 +107,12 @@ class AppRouteTests(unittest.TestCase):
             )
             with patch("app.marker_history", store):
                 response = self.client.get("/api/marker-records")
+                text_document = self.client.get("/api/marker-ids.txt")
 
         self.assertEqual(response.status_code, 503)
         self.assertIn("DATABASE_URL", response.json["error"])
+        self.assertEqual(text_document.status_code, 503)
+        self.assertIn("DATABASE_URL", text_document.json["error"])
 
     def test_marker_records_api_validates_limit(self):
         invalid = self.client.get("/api/marker-records?limit=invalid")

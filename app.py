@@ -116,6 +116,7 @@ def warehouse_status():
     state = warehouse.snapshot()
     state_store.save("warehouse", state)
     try:
+        marker_history.sync_scanned_markers(current_detections, current_run_id)
         marker_history.sync_warehouse(state, current_detections, current_run_id)
     except MarkerHistoryUnavailable as exc:
         state["marker_history_saved"] = False
@@ -141,6 +142,20 @@ def marker_records():
             "persistent" if marker_history.database_url else "local"
         )
         return jsonify(result)
+    except MarkerHistoryUnavailable as exc:
+        return jsonify({"error": str(exc)}), 503
+
+
+@app.get("/api/marker-ids.txt")
+def marker_id_document():
+    try:
+        document = marker_history.marker_id_document()
+        response = Response(document, mimetype="text/plain; charset=utf-8")
+        response.headers["Content-Disposition"] = (
+            'attachment; filename="visionlogix-marker-ids.txt"'
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
     except MarkerHistoryUnavailable as exc:
         return jsonify({"error": str(exc)}), 503
 
@@ -243,6 +258,7 @@ def process_camera_frame():
     state = warehouse.snapshot()
     state_store.save("warehouse", state)
     try:
+        marker_history.sync_scanned_markers(detection_data, run_id)
         marker_history.sync_warehouse(state, detection_data, run_id)
     except MarkerHistoryUnavailable as exc:
         history_saved = False
